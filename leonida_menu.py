@@ -1110,6 +1110,53 @@ def result_screen(st, code, log_path):
     pause()
 
 
+CMAKE_CONFIG_FILES = ("CMakeCache.txt", "build.ninja", "cmake_install.cmake", "CTestTestfile.cmake")
+
+
+def stale_cmake_cache():
+    """The runtime build folder, if its CMake cache was made for another checkout location.
+
+    CMake refuses to reuse a cache after the project folder is moved or renamed. Returns
+    (build_dir, old_source_dir), or None when there is nothing wrong.
+    """
+    build = os.path.join(ROOT, "runtime", "build")
+    try:
+        with open(os.path.join(build, "CMakeCache.txt"), encoding="utf-8", errors="replace") as f:
+            for ln in f:
+                if ln.startswith("CMAKE_HOME_DIRECTORY:"):
+                    old = ln.split("=", 1)[1].strip()
+                    here = os.path.join(ROOT, "runtime")
+                    same = os.path.normcase(os.path.normpath(old)) == os.path.normcase(os.path.normpath(here))
+                    return None if same else (build, old)
+    except OSError:
+        pass
+    return None
+
+
+def fix_stale_cmake_cache(stages):
+    """Offer to clear the CMake settings left behind by a moved folder (compiled output is kept)."""
+    if "runtime" not in stages:
+        return
+    stale = stale_cmake_cache()
+    if not stale:
+        return
+    build, old = stale
+    line("warn", "The runtime build folder was set up for a different location.")
+    note("It points at: " + old)
+    note("CMake would stop with 'CMakeCache.txt is different than the directory where it was created'.")
+    note("Clearing only its saved settings (not the compiled files) lets CMake set it up again here.")
+    if not yesno("Clear the old CMake settings in runtime\\build", True):
+        note("Left as is. The runtime stage will probably fail until this is cleared.")
+        return
+    for name in CMAKE_CONFIG_FILES:
+        try:
+            os.remove(os.path.join(build, name))
+        except OSError:
+            pass
+    shutil.rmtree(os.path.join(build, "CMakeFiles"), ignore_errors=True)
+    line("ok", "Cleared. CMake will configure it again; some files may be rebuilt.")
+
+
 def do_build(st, stages, wav):
     os.makedirs(LOG_DIR, exist_ok=True)
     for old in sorted(os.listdir(LOG_DIR))[:-9]:
@@ -1147,6 +1194,7 @@ def install_flow(st):
     p()
     if select_menu("Start this build?", [[("y", "Yes", "start building"), ("q", "Quit", "back to the menu")]], "y", summary_rows(st, stages, wav)) != "y":
         return
+    fix_stale_cmake_cache(stages)
     code, log_path = do_build(st, stages, wav)
     result_screen(st, code, log_path)
 

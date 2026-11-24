@@ -100,6 +100,10 @@ is chosen, to what your GPU's driver can take: that stage compiles every shader 
 shader, so it is capped at 4 jobs with a discrete GPU (the setting upstream ran its full-corpus build with) and 2 without one. The other stages do not
 use the GPU, and the menu says so. Press Enter to take the suggestion or type your own number.
 
+**Moved the folder?** CMake remembers where the project was when `runtime\build` was first set up and refuses to continue
+if you move or rename it. Before a build that includes the runtime stage, the menu checks for this and offers to clear only
+those saved settings (compiled files are kept), so you don't have to hunt for the error.
+
 The menu lists every drive with its free space, warns when a drive is too small, and suggests the roomiest one for the work folder.
 It then runs upstream's `make_game.py` with the matching `--game`, `--stages`, `--out`, `--work` and `--jobs`, records the command and exit code in a short log, and shows a result screen. The build's own progress board is upstream's.
 
