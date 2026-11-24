@@ -92,6 +92,13 @@ close the window and open `Leonida.bat` again.
 | Full build | `check,shaders,assets,runtime` | about 400 GB |
 | Shaders only | `check,shaders` | about 30 GB |
 | Check game files only | `check` | none |
+| Port + GPU pipelines | `check,shaders,runtime,pipelines` | about 35 GB (estimate: the 30 GB plus upstream's 3.8 GB pipeline cache) |
+
+**Parallel jobs are recommended for your PC.** The menu starts from upstream's own default (half your CPU threads), lowers it to what
+your free RAM can carry (planned at about 2 GB per job, which is this menu's estimate, not a measurement), and, only when the pipelines stage
+is chosen, to what your GPU's driver can take: that stage compiles every shader inside the GPU driver on your CPU and RAM, several GB per large
+shader, so it is capped at 4 jobs with a discrete GPU (the setting upstream ran its full-corpus build with) and 2 without one. The other stages do not
+use the GPU, and the menu says so. Press Enter to take the suggestion or type your own number.
 
 The menu lists every drive with its free space, warns when a drive is too small, and suggests the roomiest one for the work folder.
 It then runs upstream's `make_game.py` with the matching `--game`, `--stages`, `--out`, `--work` and `--jobs`, records the command and exit code in a short log, and shows a result screen. The build's own progress board is upstream's.

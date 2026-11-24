@@ -34,7 +34,9 @@ PRESETS = {
     "2": ("check,shaders,assets,runtime", "Full build", "also exports every asset", 400),
     "3": ("check,shaders", "Shaders only", "translate the GPU programs", 30),
     "4": ("check", "Check game files only", "reads sizes, builds nothing", 0),
+    "5": ("check,shaders,runtime,pipelines", "Port + GPU pipelines", "also compiles every pipeline for your GPU; hours", 35),
 }
+MEM_PER_JOB_GB = 2   # this menu's planning estimate for one job, not a measured figure
 
 # winget installs: id -> (label, winget args, stage that needs it, source, what it is)
 WINGET = {
@@ -459,7 +461,7 @@ def apply_env():
     os.environ.update(fresh_env())
 
 
-def ram_gb():
+def ram_gb(available=False):
     if os.name != "nt":
         return None
 
@@ -468,7 +470,7 @@ def ram_gb():
     m = MS()
     m.l = ctypes.sizeof(MS)
     ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
-    return m.f0 / 2**30
+    return (m.f1 if available else m.f0) / 2**30
 
 
 def powershell(cmd):
@@ -482,6 +484,71 @@ def powershell(cmd):
 def gpus():
     out = powershell("Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name + ' | driver ' + $_.DriverVersion }")
     return [l.strip() for l in out.splitlines() if l.strip()]
+
+
+def gpu_classes():
+    """[(name, kind)] for the real graphics cards; kind is 'discrete' or 'integrated' (virtual adapters are left out)."""
+    out = []
+    for g in gpus():
+        name = g.split(" | ")[0]
+        if re.search(r"virtual|parsec|remote|basic|hyper-v|vmware", name, re.I):
+            continue
+        if re.search(r"nvidia|geforce|quadro|rtx|gtx|radeon rx|radeon pro|\barc\b", name, re.I):
+            out.append((name, "discrete"))
+        elif re.search(r"intel|uhd|iris|vega|radeon\(tm\) graphics|radeon graphics", name, re.I):
+            out.append((name, "integrated"))
+        else:
+            out.append((name, "discrete"))
+    return out
+
+
+def suggest_jobs(stages):
+    """(jobs, [reasons], gpu_note). Starts from upstream's own default (half the CPU threads), lowers it to what the free
+    RAM can carry, and, only when the pipelines stage is chosen, to what a GPU driver's shader compiler can take: upstream's
+    docs say each large shader needs several GB of RAM there, and its full-corpus run used 4 jobs (docs/design.md)."""
+    cpus = os.cpu_count() or 2
+    n, why = max(1, cpus // 2), ["%d CPU threads / 2 (upstream's default)" % cpus]
+    free = ram_gb(available=True)
+    if free:
+        cap = max(1, int(free * 0.7 / MEM_PER_JOB_GB))
+        if cap < n:
+            n = cap
+            why.append("%.0f GB of RAM is free: about %d jobs at ~%d GB each (an estimate)" % (free, cap, MEM_PER_JOB_GB))
+    cards = gpu_classes()
+    names = ", ".join(nm for nm, _ in cards) or "no graphics card found"
+    if "pipelines" in stages.split(","):
+        cap = 4 if any(k == "discrete" for _, k in cards) else 2
+        if cap < n:
+            n = cap
+        why.append("pipelines: %s compiles on your CPU and RAM, several GB per large shader, so at most %d%s" % (
+            names, cap, " (upstream's full run used 4)" if cap == 4 else " (precaution: no discrete GPU found)"))
+        note_gpu = "Your GPU: " + names + ". The pipelines stage compiles for it, so it limits the number."
+    else:
+        note_gpu = "Your GPU: " + names + ". These stages don't use it, so the number comes from CPU threads and free RAM. Add the pipelines stage for a GPU-based limit."
+    return n, why, note_gpu
+
+
+def jobs_for(st, stages):
+    return int(st.get("jobs") or suggest_jobs(stages)[0])
+
+
+def step_jobs(st, stages):
+    n, why, note_gpu = suggest_jobs(stages)
+    p()
+    line("info", "Suggested parallel jobs: %d" % n)
+    for w in why:
+        note("• " + w if T.uni else "* " + w)
+    note(note_gpu)
+    note("More jobs is faster until the RAM runs out. Enter takes the suggestion.")
+    while True:
+        ans = ask("Parallel jobs", st.get("jobs") or n)
+        if str(ans).isdigit() and 1 <= int(ans) <= 4 * (os.cpu_count() or 8):
+            if int(ans) == n:
+                st.pop("jobs", None)
+            else:
+                st["jobs"] = int(ans)
+            return
+        p("   " + paint("Type a whole number.", GOLD))
 
 
 def cpu_name():
@@ -832,6 +899,7 @@ def step_build(st, n=2, total=4):
     st.update(out=out, work=work)
     wav = "assets" in stages and yesno("Also decode audio to WAV (much larger, needs ffmpeg)", False)
     st["wav"] = wav
+    step_jobs(st, stages)
     save(st)
     return stages, wav
 
@@ -1010,7 +1078,7 @@ def legal_gate(st):
 
 def summary_rows(st, stages, wav):
     ts = needed(stages, wav)
-    jobs = int(st.get("jobs") or max(1, (os.cpu_count() or 2) // 2))
+    jobs = jobs_for(st, stages)
     return [plate_row("Game", os.path.basename((st.get("game") or "").rstrip("\\/"))), plate_row("Build", stages),
             plate_row("Output", st.get("out") or "-"), plate_row("Work", st.get("work") or "-"), prow(),
             bar_row(jobs, max(jobs, os.cpu_count() or jobs), "%d jobs at once" % jobs),
@@ -1021,8 +1089,7 @@ def build_command(st, stages, wav):
     cmd = [sys.executable, "-I", os.path.join(ROOT, "make_game.py"), "--game", st["game"], "--stages", stages]
     if "out" in st and stages != "check":
         cmd += ["--out", st["out"], "--work", st["work"]]
-    if st.get("jobs"):
-        cmd += ["--jobs", str(st["jobs"])]
+    cmd += ["--jobs", str(jobs_for(st, stages))]
     return cmd + (["--wav"] if wav else [])
 
 
@@ -1125,7 +1192,7 @@ def settings_screen(st):
         p("   Game:     " + (st.get("game") or paint("not chosen yet", 245)))
         p("   Output:   " + (st.get("out") or DOCS_OUT + paint("  (standard)", 245)))
         p("   Work:     " + (st.get("work") or paint("<output>\\work", 245)))
-        p("   Jobs:     " + (str(st.get("jobs")) if st.get("jobs") else paint("half your threads", 245)))
+        p("   Jobs:     " + (str(st.get("jobs")) + paint("  (your choice)", 245) if st.get("jobs") else paint("suggested from your PC each time", 245)))
         p()
         k = choose([("1", "Change the game copy", ""), ("2", "Change the output folder", ""), ("3", "Change the work folder", ""),
                     ("4", "Change the job count", "parallel work"), ("b", "Back", "")], "b")
@@ -1138,9 +1205,7 @@ def settings_screen(st):
         elif k == "3":
             st["work"] = pick_drive_folder("Work folder", st.get("work") or DOCS_OUT, 30, "Big temporary files go here (30 GB, or 400 GB for a full build).")
         elif k == "4":
-            ans = ask("Parallel jobs", st.get("jobs") or max(1, (os.cpu_count() or 2) // 2))
-            if str(ans).isdigit() and int(ans) > 0:
-                st["jobs"] = int(ans)
+            step_jobs(st, PRESETS.get(st.get("preset", "1"), PRESETS["1"])[0])
         else:
             return
         save(st)
