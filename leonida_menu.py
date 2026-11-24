@@ -184,7 +184,7 @@ def banner():
     p(pframe(prow()))
     p(pframe(sunset_row()))
     p(pframe(prow((" Grand Theft Auto VI, built from your own copy", CREAM))))
-    for line in ("a local fork of ubiquitarianism/leonida", "GPL-3.0  " + T.s["dot"] + "  not affiliated with Rockstar Games or Take-Two"):
+    for line in ("built on ubiquitarianism/leonida", "GPL-3.0  " + T.s["dot"] + "  not affiliated with Rockstar Games or Take-Two"):
         p(pframe(prow((" " + line, LAVENDER))))
     p(pbot())
 

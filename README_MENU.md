@@ -2,9 +2,9 @@
 
 # Leonida guided menu
 
-A double-click menu for [ubiquitarianism/leonida](https://github.com/ubiquitarianism/leonida), the static recompilation
+A double-click menu for Leonida ([ubiquitarianism/leonida](https://github.com/ubiquitarianism/leonida)), the static recompilation
 project for Grand Theft Auto VI (Xbox Series, package 1.0.2.1). It finds your game copy, checks your PC, offers the
-tools the build needs (asking first), and starts the build. It is **two files** added to the upstream project; nothing
+tools the build needs (asking first), and starts the build. It is **two files** added on top of the project; nothing
 upstream is changed.
 
 > Upstream status is **early: the game does not boot yet.** This menu makes the toolchain easier to set up and run. It
@@ -31,17 +31,14 @@ leonida\
 Then double-click **`Leonida.bat`**. It needs Python 3.12 or newer on your PC and nothing else to start; everything
 else is offered inside the menu.
 
-Don't have the project yet? Clone upstream **with its submodule** (a ZIP download leaves the submodule out):
+This repository already contains both files. To get everything in one step, clone it **with its submodule** (a ZIP download
+leaves the submodule out):
 
 ```powershell
-git clone --recursive https://github.com/ubiquitarianism/leonida
+git clone --recursive https://github.com/Click2x/bananatheftauto
 ```
 
-or take this branch, which already contains the two files:
-
-```powershell
-git clone --recursive --branch BananaTheftAuto https://github.com/Click2x/leonida
-```
+Already have [upstream Leonida](https://github.com/ubiquitarianism/leonida)? Just copy the two files into it.
 
 ## What it does
 

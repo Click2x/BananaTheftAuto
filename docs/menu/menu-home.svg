@@ -288,43 +288,38 @@
 <rect x="36" y="151" width="9" height="19" fill="#5f005f" shape-rendering="crispEdges"/>
 <text x="36" y="165" fill="#ff5faf">│</text>
 <rect x="45" y="151" width="9" height="19" fill="#5f005f" shape-rendering="crispEdges"/>
-<rect x="54" y="151" width="360" height="19" fill="#5f005f" shape-rendering="crispEdges"/>
-<text x="63" y="165" fill="#d7afff">a</text>
-<text x="81" y="165" fill="#d7afff">l</text>
-<text x="90" y="165" fill="#d7afff">o</text>
-<text x="99" y="165" fill="#d7afff">c</text>
-<text x="108" y="165" fill="#d7afff">a</text>
-<text x="117" y="165" fill="#d7afff">l</text>
-<text x="135" y="165" fill="#d7afff">f</text>
-<text x="144" y="165" fill="#d7afff">o</text>
-<text x="153" y="165" fill="#d7afff">r</text>
-<text x="162" y="165" fill="#d7afff">k</text>
-<text x="180" y="165" fill="#d7afff">o</text>
-<text x="189" y="165" fill="#d7afff">f</text>
-<text x="207" y="165" fill="#d7afff">u</text>
-<text x="216" y="165" fill="#d7afff">b</text>
+<rect x="54" y="151" width="297" height="19" fill="#5f005f" shape-rendering="crispEdges"/>
+<text x="63" y="165" fill="#d7afff">b</text>
+<text x="72" y="165" fill="#d7afff">u</text>
+<text x="81" y="165" fill="#d7afff">i</text>
+<text x="90" y="165" fill="#d7afff">l</text>
+<text x="99" y="165" fill="#d7afff">t</text>
+<text x="117" y="165" fill="#d7afff">o</text>
+<text x="126" y="165" fill="#d7afff">n</text>
+<text x="144" y="165" fill="#d7afff">u</text>
+<text x="153" y="165" fill="#d7afff">b</text>
+<text x="162" y="165" fill="#d7afff">i</text>
+<text x="171" y="165" fill="#d7afff">q</text>
+<text x="180" y="165" fill="#d7afff">u</text>
+<text x="189" y="165" fill="#d7afff">i</text>
+<text x="198" y="165" fill="#d7afff">t</text>
+<text x="207" y="165" fill="#d7afff">a</text>
+<text x="216" y="165" fill="#d7afff">r</text>
 <text x="225" y="165" fill="#d7afff">i</text>
-<text x="234" y="165" fill="#d7afff">q</text>
-<text x="243" y="165" fill="#d7afff">u</text>
+<text x="234" y="165" fill="#d7afff">a</text>
+<text x="243" y="165" fill="#d7afff">n</text>
 <text x="252" y="165" fill="#d7afff">i</text>
-<text x="261" y="165" fill="#d7afff">t</text>
-<text x="270" y="165" fill="#d7afff">a</text>
-<text x="279" y="165" fill="#d7afff">r</text>
-<text x="288" y="165" fill="#d7afff">i</text>
-<text x="297" y="165" fill="#d7afff">a</text>
-<text x="306" y="165" fill="#d7afff">n</text>
-<text x="315" y="165" fill="#d7afff">i</text>
-<text x="324" y="165" fill="#d7afff">s</text>
-<text x="333" y="165" fill="#d7afff">m</text>
-<text x="342" y="165" fill="#d7afff">/</text>
-<text x="351" y="165" fill="#d7afff">l</text>
-<text x="360" y="165" fill="#d7afff">e</text>
-<text x="369" y="165" fill="#d7afff">o</text>
-<text x="378" y="165" fill="#d7afff">n</text>
-<text x="387" y="165" fill="#d7afff">i</text>
-<text x="396" y="165" fill="#d7afff">d</text>
-<text x="405" y="165" fill="#d7afff">a</text>
-<rect x="414" y="151" width="198" height="19" fill="#5f005f" shape-rendering="crispEdges"/>
+<text x="261" y="165" fill="#d7afff">s</text>
+<text x="270" y="165" fill="#d7afff">m</text>
+<text x="279" y="165" fill="#d7afff">/</text>
+<text x="288" y="165" fill="#d7afff">l</text>
+<text x="297" y="165" fill="#d7afff">e</text>
+<text x="306" y="165" fill="#d7afff">o</text>
+<text x="315" y="165" fill="#d7afff">n</text>
+<text x="324" y="165" fill="#d7afff">i</text>
+<text x="333" y="165" fill="#d7afff">d</text>
+<text x="342" y="165" fill="#d7afff">a</text>
+<rect x="351" y="151" width="261" height="19" fill="#5f005f" shape-rendering="crispEdges"/>
 <rect x="612" y="151" width="9" height="19" fill="#5f005f" shape-rendering="crispEdges"/>
 <rect x="621" y="151" width="9" height="19" fill="#5f005f" shape-rendering="crispEdges"/>
 <text x="621" y="165" fill="#ff5faf">│</text>

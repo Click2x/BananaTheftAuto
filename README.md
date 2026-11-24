@@ -1,3 +1,53 @@
+<p align="center"><img src="docs/banana/banner.svg" alt="Banana Theft Auto" width="100%"></p>
+
+# Banana Theft Auto
+
+A standalone project built on **Leonida**, the static recompilation of Grand Theft Auto VI (Xbox Series, package 1.0.2.1) for
+Windows, which is itself a continuation of an earlier project (see Credits). This repository adds a guided Windows menu that finds your
+own copy of the game, checks your PC, offers the tools the build needs (asking first) and starts the build.
+
+> Status is whatever Leonida's is: **early, the game does not boot yet.** The menu makes the toolchain easier to set up and run; it does not
+> change what the build produces. It does not contain, download or share any game files.
+
+## What this repository adds
+
+- `Leonida.bat` and `leonida_menu.py`: the guided menu. Details, screenshots and status: **[README_MENU.md](README_MENU.md)**.
+- `docs/banana/` and `docs/menu/`: the artwork and screenshots.
+
+Everything else is Leonida, unchanged, with its full history.
+
+## Quick start
+
+```powershell
+git clone --recursive https://github.com/Click2x/bananatheftauto
+```
+
+Then double-click `Leonida.bat` (needs Python 3.12 or newer; everything else is offered inside the menu).
+
+## Credits
+
+This repository contains Leonida's complete git history, so every commit keeps its original author (`git shortlog -sn` lists the
+716 names). The recompilation work belongs to them, not to this repository's additions.
+
+- **[ubiquitarianism/leonida](https://github.com/ubiquitarianism/leonida)** and its contributors: the project this is built on, and its
+  maintainers' continuation of the original.
+- **[NotRexed's Leonida](https://github.com/ItsNotRexed/Leonida)** and its contributors (NotRexed, Vonsek, Kam471, AlxcBTW, bbareth,
+  bobcatchris, Luiz Neves, kotorvr, TreXito and many more): the original project and most of its history.
+- **[rpf9-explorer](https://github.com/breadbbbb/rpf9-explorer)** by breadbbbb (git submodule), plus Mesa, libHttpClient, LLVM,
+  SPIRV-Tools and the logo by SlyDevil: see upstream's Credits section below for what each is used for.
+- **The menu, screenshots and Banana Theft Auto artwork**: Click2x, written with the help of Claude (AI-assisted).
+
+Grand Theft Auto and all related names are trademarks of their owners. This is an unofficial fan project, not affiliated with or
+endorsed by Rockstar Games or Take-Two. Never share your game files or anything built from them.
+
+## License
+
+GPL-3.0-or-later, the same as Leonida. See [LICENSE](LICENSE). Third-party code keeps its own license.
+
+---
+
+# Upstream README (Leonida, unmodified)
+
 <h1 align="center">
   <br>
   <a>
