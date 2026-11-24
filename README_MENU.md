@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/banana/banner.svg" alt="Banana Theft Auto" width="100%"></p>
+
 # Leonida guided menu
 
 A double-click menu for [ubiquitarianism/leonida](https://github.com/ubiquitarianism/leonida), the static recompilation
@@ -105,6 +107,8 @@ It then runs upstream's `make_game.py` with the matching `--game`, `--stages`, `
 - Build logs (the last ten): `%LOCALAPPDATA%\Leonida\logs\`
 
 ## Status of this menu
+
+![Banana on the run](docs/banana/wanted.svg)
 
 Done:
 - All screens above, with arrow-key menus (Up/Down, Enter, Esc) and a numbered fallback for consoles without colour, `NO_COLOR` support and an ASCII fallback.
