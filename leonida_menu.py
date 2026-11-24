@@ -1029,7 +1029,7 @@ def build_command(st, stages, wav):
 def result_screen(st, code, log_path):
     p()
     if code == 0:
-        box([paint("Finished.", GREEN, True), "", "Output:  " + (st.get("out") or ""),
+        box([c("Finished.", GREEN, True), "", "Output:  " + (st.get("out") or ""),
              paint("Upstream status is early: the game does not boot yet. What you built is the toolchain output.", 245)], "All done", GREEN)
         if st.get("out") and os.path.isdir(st["out"]) and yesno("Open the output folder", False):
             try:
@@ -1037,9 +1037,9 @@ def result_screen(st, code, log_path):
             except (OSError, AttributeError):
                 pass
     elif code == 130:
-        box([paint("Stopped.", GOLD, True), "Nothing is broken. Choose Start again and finished steps are skipped."], "Paused", GOLD)
+        box([c("Stopped.", GOLD, True), "Nothing is broken. Choose Start again and finished steps are skipped."], "Paused", GOLD)
     else:
-        box([paint("The build stopped.", RED, True), "", "Read the message above it. The full log is at:", log_path], "Stopped", RED)
+        box([c("The build stopped.", RED, True), "", "Read the message above it. The full log is at:", log_path], "Stopped", RED)
     pause()
 
 
@@ -1213,9 +1213,9 @@ def preview():
                           summary_rows(st, "check,shaders,runtime", False)):
         p(l)
     p()
-    box([paint("Finished.", GREEN, True), "", "Output:  " + DOCS_OUT], "All done", GREEN)
+    box([c("Finished.", GREEN, True), "", "Output:  " + DOCS_OUT], "All done", GREEN)
     p()
-    box([paint("The build stopped.", RED, True), "", "Read the message above it."], "Stopped", RED)
+    box([c("The build stopped.", RED, True), "", "Read the message above it."], "Stopped", RED)
     p()
 
 
