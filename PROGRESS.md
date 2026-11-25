@@ -98,12 +98,15 @@ shader. That is the most likely source of about ten threads in `nvgpucomp64.dll`
 thousands of translated shaders. Measured on a 100 s run: slot 67 is called only about 304 times in total (calls 302 and 304 failed with `E_INVALIDARG`, the rest succeeded) and then stops. So the driver compiles about 300 pipelines for minutes while the title makes no further pipeline calls: consistent with the title waiting for them, but the wait itself is not yet shown.
 
 ### What the title's threads wait on (90 s run, dumps at 40 s and 80 s)
-Across both dumps, 38 of the non-NVIDIA thread samples sit in one kernel wait (a wait on an object), 18 in another, and about 38
-(the busiest title thread among them) in a sleep call made from the title's own code, that is a poll-and-sleep loop. The busiest
-title thread is therefore most likely polling for something, which the layer is not providing, rather than computing. Which
-object or condition it polls is not yet identified (needs the title's call sites looked at locally).
+Across both dumps, 38 of the non-NVIDIA thread samples sit in one kernel wait, 18 in another, and about 38 in an
+infinite-timeout wait on an object made from a small helper in the title (it waits on one handle a given number of times).
+**Correction to an earlier reading of these dumps:** I first took the busiest title thread to be in a poll-and-sleep loop. The
+frame is a `WaitForSingleObject`-style call with an infinite timeout, i.e. an idle worker. The thread's CPU figure is
+cumulative (it did about 11.7 s of work earlier in the run and then waits), so it says nothing about polling. What the workers
+wait for (work that is never submitted, or a signal our layer should raise) is not identified yet.
 
 ### Things that were wrong along the way (kept for honesty)
 - First guess for the failing `Close` calls: reopen lists when their allocator is reset. It reopened nothing; removed.
 - First reading of the extra window: "not part of the run". It belongs to the game itself (the title's own window).
+- A first reading of thread-stack dumps as a polling loop: the frame was an infinite wait and the CPU figure cumulative.
 - The first CLZERO fix (one `VirtualQuery` per region, not per page) did not reduce that thread's CPU use; remembering the writable span did.
