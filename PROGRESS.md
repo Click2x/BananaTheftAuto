@@ -171,6 +171,31 @@ boot sample also shows `0 fspx_gfx`). So draws are recorded but the pipelines th
 cannot be built. The run's log also reports `no translated vs` for the game's own shaders. Tests on the merged branch: `ctest`
 420 of 420 pass (including `d3d12_close_parity`, which failed before), `test_shader_library.py` 24 and `test_shader_disasm.py` 31 pass.
 
+### Graphics shader translation: what it needs, and the first full run (2026-11-25)
+No build stage translates the pipeline library's graphics programs, but the tools for it exist and work when run by hand
+(nothing here is game data; outputs stay in the work folder):
+
+```powershell
+# SPIRV-Tools (spirv-as, spirv-val) on PATH and LLVM_MC pointing at llvm-mc
+python -I tools\shader_library.py <package>\shaders.rpf --out <work>\gfxlib --stages vs,ps --disasm --carve <work>\shaders\dxbc --jobs 10
+python -I toolsdna2spirv.py <work>\gfxlib\disasm --out <work>\gfxspirv
+# then put the result at <work>\shaders\spirvspx_gfx (its index.json carries stage and fspx_code_sha256 per program)
+```
+
+`--carve` matters: the translator reads each program's input/output signatures from its source shader container, and without
+it every program is refused ("no shader container"). Results: 11,339 vertex and pixel programs extracted (the Python decoder
+fallback decoded 2,096 that llvm-mc could not); **11,104 translated and all 11,104 pass `spirv-val`**; 235 did not
+(mostly `v_interp_p2_f16` words llvm-mc prints with a field dropped, and 6 without a container). Of the 11,104, 7,202 are
+wave-64 graphics shaders marked tier C, which the translator itself says are not exact on 32-wide GPUs such as this
+RTX 3090 (see `wave64_graphics_reasons` in the index). The full translation took about 50 minutes.
+
+With them installed (120 s run, merged build): D3D12 calls 188,438 (118,899 before); `DrawIndexedInstanced` 8,022 and
+`DrawInstanced` 3,128 recorded; `Dispatch` 501; `SetPipelineState` 4,079; `PresentX` 1,564; no crash. **Native graphics
+pipelines still fail 12,062 of 13,388 times.** The log gives the main reason: the game's own mesh shaders (translated by an
+earlier build) "were translated before the graphics root window; translate the shaders again (`make_game.py --stages
+shaders`)", thousands of times. So the old translated game shaders need retranslating with the current translator. Not
+checked yet: whether the window shows anything (it was not looked at in this run).
+
 ### Things that were wrong along the way (kept for honesty)
 - First guess for the failing `Close` calls: reopen lists when their allocator is reset. It reopened nothing; removed.
 - First reading of the extra window: "not part of the run". It belongs to the game itself (the title's own window).
