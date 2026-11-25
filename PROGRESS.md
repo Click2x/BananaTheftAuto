@@ -91,6 +91,12 @@ the title thread that did the clearing used 11.7 s of CPU over 50 s (about 23%, 
 down from about 94% of a core. Behavioural difference, noted in the code: a guard page appearing inside a remembered span is
 consumed instead of delivered. `cpu_emulation_test` passes. The NVIDIA compiler threads are unchanged (about 41 s CPU each in 50 s).
 
+### NVIDIA compiler threads: likely cause (not yet confirmed)
+The log shows the title deserialising compute pipelines through device slot 67 (two calls failed with `E_INVALIDARG`; the log
+only keeps the first few outcomes), and each success makes our layer build a Vulkan compute pipeline from a translated library
+shader. That is the most likely source of about ten threads in `nvgpucomp64.dll` working for the whole run: the driver compiling
+thousands of translated shaders. Not yet confirmed by counting successful slot-67 calls; next run should log a count.
+
 ### Things that were wrong along the way (kept for honesty)
 - First guess for the failing `Close` calls: reopen lists when their allocator is reset. It reopened nothing; removed.
 - First reading of the extra window: "not part of the run". It belongs to the game itself (the title's own window).
