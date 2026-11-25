@@ -266,6 +266,11 @@ expected when pictures do appear.
   by the recompiled title with its own shaders, fonts and textures; two screenshots are in `docs/screenshots/`. A third (the navigation page) is published with the owner's taskbar area painted over. The owner says the input was the **keyboard** in the title's window, and that it may have been very delayed (a low frame rate would explain a lag). Which keys, which build and whether it is the title reading the window's keyboard messages directly are not recorded yet: the build here has no SDL3, so no pad or keyboard pad is served.
 - The owner then sent a further screenshot: the Rockstar logo on a dark background (the title's logo splash, after the setup screens), also drawn by the
   recompiled title. Kept local (it shows the owner's taskbar). So the boot path goes: sign-in screen, legal notices, finish setup, navigation options, logo.
+- **Controller input works (2026-11-25 evening).** The runtime was rebuilt with SDL3 (`scriptsuild_runtime.ps1 -FetchSdl3 -jobs 10`; downloads
+  the pinned SDL 3.4.20 source once, hash-checked, with the owner's OK) and run with `LEONIDA_KEYBOARD_PAD=1`. The log shows `gameinput: SDL 3.4.20
+  gamepads`, the keyboard pad attached and "connected Xbox One Controller (045e:02ff, player 1)"; the owner reports the controller moves the title
+  along. The menu's runtime stage does not fetch SDL3, so a menu-built runtime has no pad (only upstream's `LEONIDA_INPUT_SCRIPT`).
+  Earlier "keyboard" input before this build is unexplained (the docs say the title reads gamepads only).
 Next: see why the title waits on the sign-in screen (input? account?). The earlier question, why draws wrote nothing, is answered: it was loading time.
  (their pipelines' shader tier, the vertex and constant data they read).
 

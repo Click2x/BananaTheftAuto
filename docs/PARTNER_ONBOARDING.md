@@ -71,7 +71,16 @@ powershell -ExecutionPolicy Bypass -File scripts\run_logged.ps1 -Port "T:\CL GTA
 ```
 Open `summary.txt` in the newest `run-...` folder. Expect: no crash, "still running at the time limit", thousands of D3D12 calls.
 The title's window appears **minimised**. Restore it from the taskbar (a minimised window cannot be presented into).
-**Getting past the first screens:** click the title's window and use the keyboard (the owner got through the sign-in, legal notices, finish-setup and navigation screens this way). Expect a long delay between a key press and the screen reacting; wait several seconds before pressing again. Which keys work best is still being recorded; add what you find to `PROGRESS.md`.
+**Getting past the first screens needs a controller (or the keyboard pad), and a runtime built with SDL3.** The menu's runtime stage does
+not include SDL3, so after Step 5 rebuild the runtime once with it (this downloads the pinned SDL 3.4.20 source, about 10 MB, hash-checked):
+```powershell
+cd "T:\CL GTA6\BananaTheftAuto"
+powershell -ExecutionPolicy Bypass -File scriptsuild_runtime.ps1 -FetchSdl3 -jobs 8
+copy runtimeuild\gta6rt.exe "T:\CL GTA6\BTA\"
+copy runtimeuild\gta6rt_tls_host.dll "T:\CL GTA6\BTA\"
+```
+Plug in a controller before starting, restore the title's window, wait several minutes for loading, then press A. For the keyboard pad set `LEONIDA_KEYBOARD_PAD=1`
+(arrows = d-pad, Enter = A, Backspace = B, Esc = Menu). The log should say `gameinput: SDL 3.4.20 gamepads`.
 To save what the title presents: set `LEONIDA_CAPTURE=<an empty folder>` and `LEONIDA_CAPTURE_SOURCE=1` before the run; files
 `frame_*.ppm` and `source_*.ppm` appear. At the moment they are all black. That is the problem.
 
