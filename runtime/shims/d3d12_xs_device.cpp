@@ -2223,6 +2223,42 @@ std::uint64_t WINAPI proxy_slot(DeviceProxy* self, std::uint64_t a1, std::uint64
                 return hr_to_u64(S_OK);
             }
         }
+        // Experiment, off by default (LEONIDA_XS_CMDSIG105=1): the title creates command signatures (device slot 41) with
+        // an Xbox-only indirect argument type, 105, which the PC path refuses with E_INVALIDARG; the title's error path
+        // then skips an init and later writes through a NULL table. The one measured signature has ByteStride 12 and a
+        // single argument of this type, which is the size of D3D12_DISPATCH_ARGUMENTS, so the experiment hands the PC a
+        // copy with type 105 replaced by DISPATCH. What 105 really is, is not known: it may be a mesh dispatch, and then
+        // ExecuteIndirect will run it as a compute dispatch.
+        if constexpr (Slot == 41) {
+            static const bool remap = [] {
+                char v[8] = {};
+                return GetEnvironmentVariableA("LEONIDA_XS_CMDSIG105", v, sizeof v) > 0 && v[0] != '0';
+            }();
+            if (remap && a1 >= 0x10000) {
+                const auto* d = reinterpret_cast<const D3D12_COMMAND_SIGNATURE_DESC*>(a1);
+                if (d->NumArgumentDescs && d->NumArgumentDescs <= 16 && d->pArgumentDescs) {
+                    thread_local D3D12_INDIRECT_ARGUMENT_DESC remapped_args[16];
+                    thread_local D3D12_COMMAND_SIGNATURE_DESC remapped_desc;
+                    remapped_desc = *d;
+                    bool changed = false;
+                    for (UINT i = 0; i < d->NumArgumentDescs; ++i) {
+                        remapped_args[i] = d->pArgumentDescs[i];
+                        if (static_cast<std::uint32_t>(remapped_args[i].Type) == 105) {
+                            remapped_args[i].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+                            changed = true;
+                        }
+                    }
+                    if (changed) {
+                        static std::atomic<bool> told{false};
+                        if (first_call(told))
+                            std::fprintf(stderr, "[rt] d3d12_xs: slot 41: indirect argument type 105 replaced by DISPATCH (experiment, ByteStride %u)\n",
+                                         d->ByteStride);
+                        remapped_desc.pArgumentDescs = remapped_args;
+                        a1 = reinterpret_cast<std::uint64_t>(&remapped_desc);
+                    }
+                }
+            }
+        }
         auto fn = reinterpret_cast<ForwardFn>(self->real_vtable[Slot]);
         const std::uint64_t result = fn(self->real, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14);
         // Diagnostic: the result of the first call of a forwarded slot, and of the first one that looks like a failed
