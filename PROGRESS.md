@@ -225,6 +225,9 @@ expected when pictures do appear.
   So the presenter works; what it is handed was never drawn into (or is drawn and then cleared to zero).
 - Same run: 1,191 `PresentX` calls (all ok), 939 `ClearRenderTargetView`, about 3,400 draws, 1,874 list submissions. The
   Khronos validation layer (`LEONIDA_VK_VALIDATION=1`) printed nothing on this path, which may only mean it is not used here.
+- Correction/extension: while the window stays minimised the presenter cannot advance (the capture only ever reaches its first frame, even
+  after 9 minutes and 9,773 `PresentX` calls). With the window restored the presenter does advance: 541 presented frames in 100 s
+  were captured (both the window image and the source image), and **all of them are zero**. So black is real, not a minimised-window artefact.
 Next: find out which targets the draws write to, and whether the two presented images are ever the target of a draw or copy.
 
 ### Things that were wrong along the way (kept for honesty)
