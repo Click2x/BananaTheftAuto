@@ -287,6 +287,12 @@ expected when pictures do appear.
   crashes, the NVIDIA driver's record of a GPU timeout and reset (Windows resets a GPU whose work runs past about 2 s). Skipping the four compute programs
   dispatched most often before the hang changed nothing (same loss, same time). Still open: is the work merely too slow (frames fall to 0-3 a second before
   it) or a shader that never finishes? Raising the Windows GPU timeout for one test would tell the two apart.
+- **With a 60 s GPU timeout (owner set `TdrDelay`/`TdrDdiDelay` = 60 and rebooted, for testing only) the device is no longer lost**, so the GPU work
+  was slow, not endless. The run still ended at about 254 s, now plainly: the title stops itself on purpose. The faulting instruction is a deliberate
+  write to address 0 in the title's own fatal-error path, reached from a thread that behaves like the title's hang watchdog (upstream's docs/xdxr.md
+  describes a ~30 s startup watchdog). In the same run, 37 compute pipelines were compiled on first use, **187 s of compiling in all** (one took 7 s),
+  and one stretch shows 40 submissions in 21.8 s. Leading explanation: first-use pipeline compiles stall the title past its watchdog. The fix to try is
+  the `pipelines` stage of `make_game.py`, which compiles every pipeline ahead of time into `pipeline_cache.bin`.
 Next: see why the title waits on the sign-in screen (input? account?). The earlier question, why draws wrote nothing, is answered: it was loading time.
  (their pipelines' shader tier, the vertex and constant data they read).
 
