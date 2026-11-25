@@ -78,12 +78,12 @@ from white to black.
 - `tests/test_shader_library.py` (23 tests) and `tests/test_shader_disasm.py` (31 tests) pass, `cpu_emulation_test` passes.
 
 ### Next steps
-1. Decode slot 57's six pointer/size pairs (local disassembly of the title's writer, as was done for slot 67) and find out
-   whether the pipeline library holds graphics programs in a form the translator can take; `docs/fspx.md` covers compute only.
-2. Graphics pipeline creation is probably what blocks every draw; scope what a minimal graphics path would need before building it.
-3. Look at the other refused calls (texture-layout calls, queue slot 31, allocator slot 9).
-4. Find what the idle workers wait for (a signal our layer should raise, or work that is never submitted).
-5. Keep this log and the README current; commit and push to this repo's `main` at each small milestone.
+1. Find the producer that fills the six pointer/size pairs and what the pairs are (state blocks and shader code per stage).
+2. Find what waits on the completion counter, to confirm the hypothesis above.
+3. Scope a minimal graphics-pipeline path (the project's docs cover compute pipelines only); a first test is to answer slot 57
+   with a stub pipeline object and see whether the title then proceeds to record draws.
+4. Other refused calls (texture-layout calls, queue slot 31, allocator slot 9).
+5. Keep this log and the README current; commit and push at each small milestone.
 
 ### CLZERO emulation: cause found and reduced
 A 30-sample stack profile put 27 samples in `VirtualQuery` (the emulation's check that memory is writable), called once per
@@ -123,6 +123,16 @@ The part sizes of the first 24 calls (logged locally) show structure: part 1 is 
 (0x50 to 0xbc), and parts 3-4 and parts 5-6 each look like a pair that varies together (for example 0x1c0/0xd0, 0x140/0x90), the
 way slot 67's kind 6 (program) and kind 7 (records) do. Some calls have parts 3 and 4 empty (size 0) and only the last pair, which
 suggests the pairs are shader stages (a pipeline with one stage and one with two). That reading is a guess from sizes alone.
+
+### Slot 57: who calls it and what happens on failure (read from the local disassembly)
+The only caller is one task function that walks a linked list of queued pipeline requests. Each request record holds the
+description inline: the root-signature pointer is written by the task just before the call, and the pointer/size pairs were
+already filled by whoever queued the request (not yet found). The call passes the shared device, that description, a fixed
+interface id and a local output slot. **On a failed result the task skips the record and moves to the next; on success it
+publishes the pipeline, bumps a shared completion counter with a state mask, and signals.** So the title does not abort when
+slot 57 fails, but it never gets the completions it counts, which fits the idle workers and a title that never starts drawing.
+This is the strongest explanation so far and is still a hypothesis: nothing has yet been seen waiting on that counter.
+The layer logs the first six frames of the caller on the first failure.
 
 ### Things that were wrong along the way (kept for honesty)
 - First guess for the failing `Close` calls: reopen lists when their allocator is reset. It reopened nothing; removed.

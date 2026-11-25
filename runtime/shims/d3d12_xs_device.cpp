@@ -2483,6 +2483,10 @@ std::uint64_t WINAPI proxy_slot(DeviceProxy* self, std::uint64_t a1, std::uint64
                 // (compute pipeline from native code). Print the first 20 words of the description so the pointer/size
                 // pairs can be read off the same way (local log only).
                 if constexpr (Slot == 57) {
+                    void* frames[6] = {};
+                    const USHORT got = CaptureStackBackTrace(0, 6, frames, nullptr);
+                    for (USHORT f = 0; f < got; ++f)
+                        std::fprintf(stderr, "[rt] d3d12_xs: slot 57 caller frame %u: %p\n", unsigned(f), frames[f]);
                     if (a1 >= 0x10000) {
                         const auto* w = reinterpret_cast<const std::uint64_t*>(a1);
                         for (int i = 0; i < 20; i += 4)
