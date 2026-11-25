@@ -211,11 +211,21 @@ runtime then loaded 40,376 translated shaders (2,705 fspx, 11,104 fspx_gfx, 52 b
 | `SetPipelineState` | 4,079 | 6,299 |
 | D3D12 calls traced | 188,438 | 223,060 |
 
-No crash. **Every native graphics pipeline the title asked for was created.** The window's contents have not been looked at in
-this run, so whether anything is drawn on screen is not known; the title records no copies in this window, and its
+No crash. **Every native graphics pipeline the title asked for was created.** The window's contents were looked at afterwards (see below: black); the title records no copies in this window, and its
 submission log (`[rt] submit phases`) shows work per frame that has not been analysed yet. Wave-64 tier C programs (7,202 of
 the graphics ones) are not exact on this GPU by the translator's own account, so wrong colours or missing effects are
 expected when pictures do appear.
+
+### What is on screen (looked at, 2026-11-25 afternoon)
+**Black.** Two ways of looking, both agree:
+- The title creates its window (`sgaWindowClass`, caption "Americas") **minimised** (it sits at -32000,-32000), so nothing is seen
+  until it is restored; restored by hand it shows a black client area.
+- `LEONIDA_CAPTURE=<dir> LEONIDA_CAPTURE_SOURCE=1` reads back the image each `PresentX` is given. The title alternates between two
+  3840x2160 images (format 37, RGBA8) and **every texel of both is zero** (not even alpha) in all captured frames, in a 90 s run.
+  So the presenter works; what it is handed was never drawn into (or is drawn and then cleared to zero).
+- Same run: 1,191 `PresentX` calls (all ok), 939 `ClearRenderTargetView`, about 3,400 draws, 1,874 list submissions. The
+  Khronos validation layer (`LEONIDA_VK_VALIDATION=1`) printed nothing on this path, which may only mean it is not used here.
+Next: find out which targets the draws write to, and whether the two presented images are ever the target of a draw or copy.
 
 ### Things that were wrong along the way (kept for honesty)
 - First guess for the failing `Close` calls: reopen lists when their allocator is reset. It reopened nothing; removed.
