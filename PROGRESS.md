@@ -78,11 +78,11 @@ from white to black.
 - `tests/test_shader_library.py` (23 tests) and `tests/test_shader_disasm.py` (31 tests) pass, `cpu_emulation_test` passes.
 
 ### Next steps
-1. (Superseded by the port above.) Find the producer that fills the six pointer/size pairs and what the pairs are (state blocks and shader code per stage).
-2. Find what waits on the completion counter, to confirm the hypothesis above.
-3. Scope a minimal graphics-pipeline path (the project's docs cover compute pipelines only); a first test is to answer slot 57
-   with a stub pipeline object and see whether the title then proceeds to record draws.
-4. Other refused calls (texture-layout calls, queue slot 31, allocator slot 9).
+1. Look at what is on screen (frame capture) and what the first submitted frames contain; compare with the draw counts.
+2. Add a build stage for the graphics library (the by-hand commands are in the graphics translation section), so a fresh
+   build produces `fspx_gfx` without manual steps.
+3. The 235 graphics programs that did not translate (`v_interp_p2_f16` words, 6 without a container) and the 69 compute ones.
+4. Other refused calls (texture-layout calls, queue slot 31, allocator slot 9); re-check which of them still occur on the merged build.
 5. Keep this log and the README current; commit and push at each small milestone.
 
 ### CLZERO emulation: cause found and reduced
@@ -178,7 +178,8 @@ No build stage translates the pipeline library's graphics programs, but the tool
 ```powershell
 # SPIRV-Tools (spirv-as, spirv-val) on PATH and LLVM_MC pointing at llvm-mc
 python -I tools\shader_library.py <package>\shaders.rpf --out <work>\gfxlib --stages vs,ps --disasm --carve <work>\shaders\dxbc --jobs 10
-python -I toolsdna2spirv.py <work>\gfxlib\disasm --out <work>\gfxspirv
+python -I tools
+dna2spirv.py <work>\gfxlib\disasm --out <work>\gfxspirv
 # then put the result at <work>\shaders\spirvspx_gfx (its index.json carries stage and fspx_code_sha256 per program)
 ```
 
@@ -195,6 +196,26 @@ pipelines still fail 12,062 of 13,388 times.** The log gives the main reason: th
 earlier build) "were translated before the graphics root window; translate the shaders again (`make_game.py --stages
 shaders`)", thousands of times. So the old translated game shaders need retranslating with the current translator. Not
 checked yet: whether the window shows anything (it was not looked at in this run).
+
+### After retranslating the game's own shaders (2026-11-25, 120 s run)
+`make_game.py --stages shaders` (about 41 minutes, 10 processes, wave64 emulation on because this GPU is 32 wide) redid the
+translation of the game's own shaders with the current translator; `fspx_gfx` was moved aside during it and put back. The
+runtime then loaded 40,376 translated shaders (2,705 fspx, 11,104 fspx_gfx, 52 bvh, 12 exe).
+
+| | merged, old shaders | merged, retranslated |
+|---|---|---|
+| native graphics pipelines (slot 57) created / failed | 1,326 / 12,062 | **25,450 / 0** |
+| `CreatePipelineState` failed | 15,012 | **4** |
+| `DrawIndexedInstanced` + `DrawInstanced` | 11,150 | **18,381** |
+| `Dispatch` | 501 | 810 |
+| `SetPipelineState` | 4,079 | 6,299 |
+| D3D12 calls traced | 188,438 | 223,060 |
+
+No crash. **Every native graphics pipeline the title asked for was created.** The window's contents have not been looked at in
+this run, so whether anything is drawn on screen is not known; the title records no copies in this window, and its
+submission log (`[rt] submit phases`) shows work per frame that has not been analysed yet. Wave-64 tier C programs (7,202 of
+the graphics ones) are not exact on this GPU by the translator's own account, so wrong colours or missing effects are
+expected when pictures do appear.
 
 ### Things that were wrong along the way (kept for honesty)
 - First guess for the failing `Close` calls: reopen lists when their allocator is reset. It reopened nothing; removed.
