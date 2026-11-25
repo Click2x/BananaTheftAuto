@@ -14,6 +14,8 @@ own copy of the game, checks your PC, offers the tools the build needs (asking f
 - `Leonida.bat` and `leonida_menu.py`: the guided menu. Details, screenshots and status: **[README_MENU.md](README_MENU.md)**.
 - `docs/banana/` and `docs/menu/`: the artwork and screenshots.
 
+- `tools/shader_disasm.py`: one small fix to an upstream file (16 bytes per line into `llvm-mc`, which avoids hundreds of MB of repeated warnings per shader), with a test. Explained in [README_MENU.md](README_MENU.md#faster-shader-step); it is not in upstream yet.
+
 Everything else is Leonida, unchanged, with its full history.
 
 ## Quick start

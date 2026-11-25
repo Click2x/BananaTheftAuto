@@ -70,6 +70,21 @@ class DisasmFailureTest(unittest.TestCase):
                 with open(os.path.join(out, "one.s"), encoding="utf-8") as f:
                     self.assertIn(f" {operand},", f.read())
 
+    def test_long_code_is_sent_in_short_lines(self):
+        # llvm-mc repeats the whole source line with every invalid-word warning, so a program must not arrive as one
+        # huge line. The fake tool reports what it received; the probe (one instruction) is answered the usual way.
+        mc = self.fake("import sys\n"
+                       "lines = sys.stdin.read().split('\\n')\n"
+                       "print('\\ts_endpgm ; encoding: [0x00,0x00,0x81,0xbf]')\n"
+                       "print('lines=%d max_words=%d' % (len(lines), max(len(l.split()) for l in lines)))\n")
+        code = (CODE[:4] * 100) + CODE[4:]   # 404 bytes
+        probe = ("import sys; sys.path.insert(0, %r); import shader_disasm as sd; "
+                 "asm, bad, err = sd.disasm(%r, 'gfx1013'); print(asm)" % (os.path.join(ROOT, "tools"), code))
+        p = subprocess.run([sys.executable, "-I", "-c", probe], capture_output=True, text=True, errors="replace",
+                           env=dict(os.environ, LLVM_MC=mc))
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("lines=26 max_words=16", p.stdout)   # ceil(404 / 16) lines of at most 16 bytes
+
     def test_missing_tool(self):
         out = os.path.join(self.dir, "out")
         p = self.run_tool("definitely-not-an-llvm-mc", out)

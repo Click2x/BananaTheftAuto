@@ -878,13 +878,17 @@ def best_drive_folder(need_gb, name="Leonida"):
     return os.path.join(root[0], name) if root[1] >= need_gb else None
 
 
-def step_build(st, n=2, total=4):
+def step_build(st, n=2, total=4, preset=None):
     heading("What to build and where", (n, total))
     items = [(k, label, hint + ("  (~%d GB)" % need if need else "")) for k, (_, label, hint, need) in PRESETS.items()]
     cur = st.get("preset", "1")
-    k = choose(items, cur, "What would you like to build?")
+    if preset:   # a shortcut from the home menu: no question, and the saved preset stays as it was
+        k = preset
+        line("info", "Building: " + PRESETS[k][1], PRESETS[k][2])
+    else:
+        k = choose(items, cur, "What would you like to build?")
+        st["preset"] = k
     stages, _, _, need = PRESETS[k]
-    st["preset"] = k
     if stages == "check":
         return stages, False
     out = pick_drive_folder("Output folder", st.get("out") or DOCS_OUT, 5,
@@ -1178,7 +1182,7 @@ def do_build(st, stages, wav):
     return code, log_path
 
 
-def install_flow(st):
+def install_flow(st, preset=None):
     if not legal_gate(st):
         pause()
         return
@@ -1187,7 +1191,7 @@ def install_flow(st):
         return
     st["game"] = game
     save(st)
-    stages, wav = step_build(st)
+    stages, wav = step_build(st, preset=preset)
     if stages != "check" and not step_tools(st, stages, wav):
         pause()
         return
@@ -1273,7 +1277,7 @@ def help_screen():
     pause()
 
 
-HOME = [[("1", "Start", "your game, then build")],
+HOME = [[("1", "Start", "your game, then build"), ("s", "Shaders only", "run just the shader step")],
         [("2", "Check this PC", "hardware, drives, tools"), ("3", "Find my game copy", "I look for it for you")],
         [("4", "What can be installed", "every tool and its source"), ("5", "Settings", "folders and speed"), ("6", "Help", "")],
         [("q", "Quit", "")]]
@@ -1292,6 +1296,8 @@ def home():
         try:
             if k == "1":
                 install_flow(st)
+            elif k == "s":
+                install_flow(st, preset="3")
             elif k == "2":
                 screen_check(st)
             elif k == "3":

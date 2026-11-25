@@ -4,8 +4,8 @@
 
 A double-click menu for Leonida ([ubiquitarianism/leonida](https://github.com/ubiquitarianism/leonida)), the static recompilation
 project for Grand Theft Auto VI (Xbox Series, package 1.0.2.1). It finds your game copy, checks your PC, offers the
-tools the build needs (asking first), and starts the build. It is **two files** added on top of the project; nothing
-upstream is changed.
+tools the build needs (asking first), and starts the build. It is **two files** added on top of the project, plus
+**one small fix to an upstream tool** (`tools/shader_disasm.py`, see [Faster shader step](#faster-shader-step)).
 
 > Upstream status is **early: the game does not boot yet.** This menu makes the toolchain easier to set up and run. It
 > does not change what the build produces.
@@ -38,13 +38,15 @@ leaves the submodule out):
 git clone --recursive https://github.com/Click2x/bananatheftauto
 ```
 
-Already have [upstream Leonida](https://github.com/ubiquitarianism/leonida)? Just copy the two files into it.
+Already have [upstream Leonida](https://github.com/ubiquitarianism/leonida)? Just copy the two files into it. (The
+shader fix below is separate and optional; the menu works without it.)
 
 ## What it does
 
 | Menu item | What happens |
 |---|---|
 | **Start** | The guided flow: notice, game copy, what to build and where, tools, summary, build. |
+| **Shaders only** (key `s`) | Runs just the shader step with your saved game, output and work folders, so all your parallel jobs go to it. Finished work is skipped. |
 | **Check this PC** | System, CPU, RAM, graphics card, Vulkan driver, free space on every drive, and a checklist of tools. |
 | **Find my game copy** | Looks for the package for you (see below). |
 | **What can be installed** | Lists each installable tool, what needs it and where it comes from. |
@@ -108,6 +110,26 @@ The menu lists every drive with its free space, warns when a drive is too small,
 It then runs upstream's `make_game.py` with the matching `--game`, `--stages`, `--out`, `--work` and `--jobs`, records the command and exit code in a short log, and shows a result screen. The build's own progress board is upstream's.
 
 ![Summary and results](docs/menu/summary.svg)
+
+## Faster shader step
+
+Upstream's `tools/shader_disasm.py` sends `llvm-mc` every byte of a shader as **one line of text**. `llvm-mc` repeats the
+source line with each "invalid instruction encoding" warning, so a 119 KB shader with 134 invalid words produced
+**125 MB of warnings**, which the tool then copied into that shader's `.s` file (127 MB, against a real listing of 1.8 MB).
+On one PC that made the pipeline-library step take hours and write tens of GB.
+
+The fix sends 16 bytes per line. Measured on the two programs below, with the real `llvm-mc`:
+
+| Program | Before | After | Listing and invalid-word count |
+|---|---|---|---|
+| `lib_cs_01765` (119 KB) | 31.6 s, 125.6 MB of warnings | 0.09 s, 22 KB | identical |
+| `lib_cs_01772` (104 KB) | not timed | 0.07 s, 14 KB | not compared with the old output |
+
+A test in `tests/test_shader_disasm.py` fails on the old code. All 31 tests in that file pass.
+
+Because `make_game.py` fingerprints this file, **changing it makes the finished AMD-upscaler, BVH-builder and pipeline-library
+steps count as out of date and run again** on the next build. Not yet checked by a full build: whether the main shader
+translation is also redone, and whether the whole pipeline-library step finishes without error.
 
 ## Where things are saved
 

@@ -1,4 +1,4 @@
-"""Disassemble the native RDNA2 code in unpacked FSSM shader blobs with LLVM's AMDGPU disassembler.
+﻿"""Disassemble the native RDNA2 code in unpacked FSSM shader blobs with LLVM's AMDGPU disassembler.
 
 FSSM header (little-endian qwords at 0x00..): 'FSSM' 01 01, blob size, ..., then a table where the
 code range appears as (offset, size) = qword[6], qword[7] in every blob checked so far (e.g. 0x2f8, 0x100).
@@ -91,7 +91,11 @@ def disasm(code: bytes, mcpu: str, backend: str = "llvm-mc", wave32: bool = True
     if backend == "python":
         asm, bad = rdna2_decode.disasm_bytes(code, mcpu=mcpu, wave32=wave32)
         return asm, bad, ""
-    text = " ".join(f"0x{b:02x}" for b in code)
+    # Sixteen bytes per line, not one line for the whole program: llvm-mc prints the source line with every
+    # "invalid instruction encoding" warning, so a program of 100 KB or more on one line repeats that line (about
+    # 0.6 MB) for each invalid word. One program measured 125 MB of warnings (copied into its .s file) and 31 s,
+    # against 22 KB and 0.1 s wrapped, with the same listing and the same invalid-word count.
+    text = "\n".join(" ".join(f"0x{b:02x}" for b in code[i:i + 16]) for i in range(0, len(code), 16))
     try:
         p = subprocess.run(MC + ["--disassemble", f"-triple={TRIPLE}", f"-mcpu={mcpu}", "-show-encoding"],
                            input=text, capture_output=True, text=True, errors="replace",
