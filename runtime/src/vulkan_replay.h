@@ -59,6 +59,7 @@
 #include <functional>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <memory>
 #include <optional>
 #include <type_traits>
@@ -5086,6 +5087,38 @@ inline void emit_commands(const PreparedList& prepared, VkCommandBuffer command_
         } else if (raster.state) {
             const Draw* draw = raster.state;
             const detail::PreparedDraw& d = prepared.draws[p.draw];
+            // LOCAL DIAGNOSTIC (LEONIDA_DRAW_STATS=1): which colour targets the draws write, printed every 2048 draws.
+            {
+                static const bool stats_on = [] {
+                    const char* v = std::getenv("LEONIDA_DRAW_STATS");
+                    return v && *v && *v != '0';
+                }();
+                if (stats_on) {
+                    static std::mutex stats_mutex;
+                    static std::uint64_t total = 0, skipped = 0, no_color = 0;
+                    static std::map<std::uint64_t, std::uint64_t> by_target;  // first colour ResourceId -> draws
+                    std::lock_guard<std::mutex> lock(stats_mutex);
+                    ++total;
+                    if (d.skipped) ++skipped;
+                    else {
+                        std::uint64_t first = 0;
+                        for (const auto& a : d.colors) if (a.id) { first = a.id; break; }
+                        if (!first) ++no_color;
+                        ++by_target[first];
+                    }
+                    if ((total & 2047) == 0) {
+                        std::fprintf(stderr, "[rt] draw-stats: %llu draws, %llu skipped, %llu without a colour target, %zu distinct first targets:",
+                                     (unsigned long long)total, (unsigned long long)skipped, (unsigned long long)no_color,
+                                     by_target.size());
+                        int shown = 0;
+                        for (const auto& [id, n] : by_target) {
+                            if (shown++ >= 8) break;
+                            std::fprintf(stderr, " id%llu=%llu", (unsigned long long)id, (unsigned long long)n);
+                        }
+                        std::fprintf(stderr, "\n");
+                    }
+                }
+            }
             if (d.skipped) continue;  // could not be resolved in prepare: dropped
             if constexpr (Checkpoints)
                 checkpoints->record(command_buffer, i, CheckpointKind::draw,

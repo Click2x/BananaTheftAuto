@@ -228,7 +228,12 @@ expected when pictures do appear.
 - Correction/extension: while the window stays minimised the presenter cannot advance (the capture only ever reaches its first frame, even
   after 9 minutes and 9,773 `PresentX` calls). With the window restored the presenter does advance: 541 presented frames in 100 s
   were captured (both the window image and the source image), and **all of them are zero**. So black is real, not a minimised-window artefact.
-Next: find out which targets the draws write to, and whether the two presented images are ever the target of a draw or copy.
+- Where the draws go (new local diagnostic `LEONIDA_DRAW_STATS=1`, prints the first colour target of each replayed draw every 2,048 draws):
+  in a 100 s run 8,192 draws were replayed, **0 skipped, 0 without a colour target**, onto 4 distinct images. The two images the title
+  presents are among them (about 530 draws each); the other two take 1,527 and 5,606 draws. So draws do reach the presented images, and
+  those images still read back all zero: the draws write nothing visible (degenerate or discarded geometry, shaders that output zero,
+  or empty vertex/constant data), not "the draws never reach the screen image".
+
 
 ### Things that were wrong along the way (kept for honesty)
 - First guess for the failing `Close` calls: reopen lists when their allocator is reset. It reopened nothing; removed.
