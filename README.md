@@ -7,6 +7,10 @@ Windows, which is itself a continuation of an earlier project (see Credits). Thi
 own copy of the game, checks your PC, offers the tools the build needs (asking first) and starts the build.
 
 > Status: **early, the game does not play yet.** On the author's PC the title now runs steadily with a window and records about 9,000 draw calls a minute (every graphics pipeline it asks for is created), and after loading (more than 100 s here) it draws its own sign-in screen (dark background, button prompts at the bottom right) with real shaders and fonts, then waits there; the day-by-day facts, measurements and mistakes are in **[PROGRESS.md](PROGRESS.md)**. New helper? Start with **[docs/PARTNER_ONBOARDING.md](docs/PARTNER_ONBOARDING.md)**. The menu makes the toolchain easier to set up and run; it does not
+>
+> ![The title's own sign-in screen, drawn by the recompiled game on Windows/Vulkan (2026-11-25)](docs/screenshots/2026-11-25-sign-in-screen.png)
+>
+> *First picture from the recompiled title (2026-11-25): its sign-in screen, drawn with the game's own translated shaders and fonts, captured by `LEONIDA_CAPTURE` from the presenter.*
 > change what the build produces. It does not contain, download or share any game files.
 
 ## What this repository adds

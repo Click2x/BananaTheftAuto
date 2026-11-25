@@ -260,7 +260,7 @@ expected when pictures do appear.
   first drawn frame, and the "blob A blend keeps draws off the image" reading above was wrong in its conclusion: while the title was
   still loading it was drawing fades and blits of black. (The tint and force-state results themselves are real measurements.)
   The picture is static: it does not advance, so the title now waits on that screen (an account choice or an input), which is the next thing to look into.
-  Screenshots of the game are kept local and are not in this repository.
+  The sign-in screenshot is in `docs/screenshots/` (published at the owner's request); further captures and anything with game data stay local.
 Next: see why the title waits on the sign-in screen (input? account?). The earlier question, why draws wrote nothing, is answered: it was loading time.
  (their pipelines' shader tier, the vertex and constant data they read).
 
