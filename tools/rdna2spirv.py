@@ -11476,7 +11476,8 @@ class Gen:
                 # Until 2026-11-22 it was dropped. A partial write like the other f16 results: the high half of vdst is
                 # kept (SHADER-430, measured on gfx1036 with tools/hw_oracle: a preset 0xdead high half survived every
                 # case). It used to be zeroed.
-                self.write_lo16(a[0], self.f16_res(self.clamp_f16(f, mods)))
+                # dst_hi: op_sel destination bit restored from the blob (restore_interp_p2_f16_dst_hi).
+                self.write_half16(a[0], self.f16_res(self.clamp_f16(f, mods)), "dst_hi" in mods)
             else:   # p1ll/p1lv produce the f32 intermediate consumed by p2_f16
                 self.dst(a[0], self.tou(f))
         elif op in SOPC_CMP32_OPS:
@@ -17771,6 +17772,19 @@ def ds_const_extent(op, key, value):
     return (start + size - 1) // 4 + 1
 
 
+def restore_interp_p2_f16_dst_hi(ins, raw, printed):
+    """llvm-mc's gfx1013 decoder drops VOP3 op_sel bit 3 (bit 14, the destination half) of v_interp_p2_f16 and re-encodes
+    it as 0. When that bit is the only difference, keep the instruction and mark it `dst_hi`: the f16 result goes to the
+    high half of the destination and the low half is kept. 151 of the 1.0.2.1 pixel shaders were refused for it."""
+    if base_op(ins["op"]) != "v_interp_p2_f16" or len(raw) != len(printed) or len(raw) < 8:
+        return False
+    r = int.from_bytes(raw, "little")
+    if r ^ int.from_bytes(printed, "little") != 1 << 14 or not (r >> 14) & 1:
+        return False
+    ins["mods"] = list(ins["mods"]) + ["dst_hi"]
+    return True
+
+
 def check_printed_encodings(path, info):
     """A listing without undecodable words is translated from LLVM's text, which shows the instruction LLVM decoded,
     not the bytes it read. Where those bytes sit next to the listing (fssm/ or fspx/), each instruction's printed
@@ -17807,6 +17821,8 @@ def check_printed_encodings(path, info):
             literal = mix_literal(raw, enc, base_op(ins["op"]))
             if literal is not None:
                 restore_mix_literal(ins, raw, literal)
+                continue
+            if restore_interp_p2_f16_dst_hi(ins, raw, enc):
                 continue
             raw12 = blob[ins["pc"]:ins["pc"] + 12]
             literal = mix_inline_literal(raw12, enc, base_op(ins["op"]))

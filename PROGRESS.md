@@ -293,6 +293,12 @@ expected when pictures do appear.
   describes a ~30 s startup watchdog). In the same run, 37 compute pipelines were compiled on first use, **187 s of compiling in all** (one took 7 s),
   and one stretch shows 40 submissions in 21.8 s. Leading explanation: first-use pipeline compiles stall the title past its watchdog. The fix to try is
   the `pipelines` stage of `make_game.py`, which compiles every pipeline ahead of time into `pipeline_cache.bin`.
+- **151 more pixel shaders translate (2026-11-25 evening).** They had been refused because llvm-mc's decoder drops one VOP3 bit of
+  `v_interp_p2_f16` (bit 14, the op_sel bit that sends the result to the high half of the register); the translator's encoding check caught the
+  mismatch (Opus found and explained it). `tools/rdna2spirv.py` now restores that bit (`restore_interp_p2_f16_dst_hi`, only when it is the sole
+  difference) and writes the high half (`write_half16`). All 151 now translate and pass `spirv-val`; they are merged into the local library
+  (11,255 of 11,339 graphics programs; the remaining 84 are 78 "DPP on v_cmpx" and 6 without a shader container). New test:
+  `tests/test_interp_p2_f16_dst_hi.py` (synthetic encodings). Not yet checked on the GPU against hardware results.
 Next: see why the title waits on the sign-in screen (input? account?). The earlier question, why draws wrote nothing, is answered: it was loading time.
  (their pipelines' shader tier, the vertex and constant data they read).
 
