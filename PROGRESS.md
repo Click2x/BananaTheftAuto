@@ -105,6 +105,16 @@ frame is a `WaitForSingleObject`-style call with an infinite timeout, i.e. an id
 cumulative (it did about 11.7 s of work earlier in the run and then waits), so it says nothing about polling. What the workers
 wait for (work that is never submitted, or a signal our layer should raise) is not identified yet.
 
+### Device slot 57: shape measured (graphics pipelines?)
+Slot 57 is called as `(description*, riid, out**)` 10,241 times and the layer forwards it to the PC slot of the same number,
+which does not implement it (`E_NOTIMPL`), so every call fails. The description is a root-signature pointer followed by **six
+pointer/size pairs** (sizes of 0x184, 0xbc, 0x1c0, 0xd0, 0x180 and 0x2f0 bytes in the one call dumped), the same pointer/size
+pattern as slot 67's four pairs for compute. That fits XCL's name for it (pipeline-state deserialisation) and would make it the
+graphics counterpart. If so, **the title cannot create any graphics pipeline, which would explain why it never records a
+draw.** Not yet proven: the pair contents are not decoded, and this does not say how the graphics shaders would be
+translated (the pipeline library's graphics programs are not translated by this project yet). The layer dumps these words
+to the local log on the first failure.
+
 ### Things that were wrong along the way (kept for honesty)
 - First guess for the failing `Close` calls: reopen lists when their allocator is reset. It reopened nothing; removed.
 - First reading of the extra window: "not part of the run". It belongs to the game itself (the title's own window).

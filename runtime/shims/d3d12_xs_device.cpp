@@ -2468,6 +2468,18 @@ std::uint64_t WINAPI proxy_slot(DeviceProxy* self, std::uint64_t a1, std::uint64
                 // Slot 41 is CreateCommandSignature on the PC: a1 is a D3D12_COMMAND_SIGNATURE_DESC (ByteStride,
                 // NumArgumentDescs, pArgumentDescs, NodeMask) and a2 the root signature. Print the description and
                 // the argument records (4 dwords each) so a refused argument type can be read off.
+                // Slot 57 is called as (description*, riid, out**) and looks like the graphics counterpart of slot 67
+                // (compute pipeline from native code). Print the first 20 words of the description so the pointer/size
+                // pairs can be read off the same way (local log only).
+                if constexpr (Slot == 57) {
+                    if (a1 >= 0x10000) {
+                        const auto* w = reinterpret_cast<const std::uint64_t*>(a1);
+                        for (int i = 0; i < 20; i += 4)
+                            std::fprintf(stderr, "[rt] d3d12_xs: slot 57 desc +0x%02x: %016llx %016llx %016llx %016llx\n", i * 8,
+                                         static_cast<unsigned long long>(w[i]), static_cast<unsigned long long>(w[i + 1]),
+                                         static_cast<unsigned long long>(w[i + 2]), static_cast<unsigned long long>(w[i + 3]));
+                    }
+                }
                 if constexpr (Slot == 41) {
                     if (a1 >= 0x10000) {
                         const auto* d = reinterpret_cast<const std::uint32_t*>(a1);
