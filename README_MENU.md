@@ -111,6 +111,13 @@ It then runs upstream's `make_game.py` with the matching `--game`, `--stages`, `
 
 ![Summary and results](docs/menu/summary.svg)
 
+## Runtime progress (experiments, not fixes)
+
+The game does **not** play. With a set of off-by-default experiment switches, the runtime now runs the title for minutes without a
+crash, closes and submits its command lists, and presents its frames, but the window stays black because the title has not
+started drawing. [`PROGRESS.md`](PROGRESS.md) is the running record: what each switch does and where the fact came from, what was
+measured, what is still unknown, and the mistakes made along the way. It contains no game bytes or offsets.
+
 ## Faster shader step
 
 Upstream's `tools/shader_disasm.py` sends `llvm-mc` every byte of a shader as **one line of text**. `llvm-mc` repeats the
