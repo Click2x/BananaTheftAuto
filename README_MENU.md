@@ -47,6 +47,7 @@ shader fix below is separate and optional; the menu works without it.)
 |---|---|
 | **Start** | The guided flow: notice, game copy, what to build and where, tools, summary, build. |
 | **Shaders only** (key `s`) | Runs just the shader step with your saved game, output and work folders, so all your parallel jobs go to it. Finished work is skipped. |
+| **Run the game** (key `r`) | Starts the built port with logging (`scripts\run_logged.ps1 -Experiments -TitleWindow`), optionally with the keyboard as a pad, for as many minutes as you choose, then prints the run's summary. Says what to do on screen: restore the window, wait for the prompts, press A. |
 | **Check this PC** | System, CPU, RAM, graphics card, Vulkan driver, free space on every drive, and a checklist of tools. |
 | **Find my game copy** | Looks for the package for you (see below). |
 | **What can be installed** | Lists each installable tool, what needs it and where it comes from. |
@@ -83,6 +84,10 @@ At "What the build needs" the menu shows what is missing and offers, per item or
 - **llvm-mc with AMDGPU**, built from source by upstream's `scripts\build_llvm_mc.ps1` (about 20-40 minutes). It waits until the C++ tools are present.
 - **.NET 8 SDK** and the `rpf9-explorer` submodule, when the asset export is chosen.
 
+For a build with the runtime stage it also asks once about **controller support**: with a yes, the runtime is built with
+`--fetch-sdl3`, so CMake downloads the pinned SDL 3.4.20 source (about 10 MB, hash-checked) for the controller shim. Without it the
+title cannot get past its sign-in screen. The answer is kept in the settings file.
+
 Nothing is installed without a yes. After an install the menu re-reads Windows' PATH; if a tool still shows as missing,
 close the window and open `Leonida.bat` again.
 
@@ -95,6 +100,7 @@ close the window and open `Leonida.bat` again.
 | Shaders only | `check,shaders` | about 30 GB |
 | Check game files only | `check` | none |
 | Port + GPU pipelines | `check,shaders,runtime,pipelines` | about 35 GB (estimate: the 30 GB plus upstream's 3.8 GB pipeline cache) |
+| Runtime only | `check,runtime` | about 1 GB (rebuilds `gta6rt.exe` after pulling new code; the shaders must already be built) |
 
 **Parallel jobs are recommended for your PC.** The menu starts from upstream's own default (half your CPU threads), lowers it to what
 your free RAM can carry (planned at about 2 GB per job, which is this menu's estimate, not a measurement), and, only when the pipelines stage

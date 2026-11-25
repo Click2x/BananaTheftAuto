@@ -4,9 +4,10 @@ This is a step-by-step for someone new to the project. Do the steps in order; st
 Where we are today is in **[PROGRESS.md](../PROGRESS.md)** (read its last section first).
 
 ## Where the project stands (one paragraph)
-Banana Theft Auto recompiles the Xbox build of GTA VI (1.0.2.1) to run on Windows with Vulkan. The title now starts, runs
-steadily, creates every graphics pipeline it asks for and records thousands of draws, **but the window is black**: the images
-it presents are all zero, even though draws land on them. Finding out why is the current job.
+Banana Theft Auto recompiles the Xbox build of GTA VI (1.0.2.1) to run on Windows with Vulkan. After several minutes of loading
+the title draws its sign-in screen, and with a controller it goes on through Legal Notices, Finish setup, Navigation options and
+the logo to its loading art. **At about 300 s it crashes** (Vulkan device lost, most likely a GPU hang). Finding that hang is the
+current job; see the last section of `PROGRESS.md`.
 
 ## Rules (please keep them)
 - You need your own legal copy of the game dump. **Never** put game files, shader outputs, disassembly or byte offsets into the
@@ -60,43 +61,38 @@ From `T:\CL GTA6\BananaTheftAuto`, double-click `Leonida.bat`.
 1. When it asks for the game, choose or paste `T:\CL GTA6\GTA6.Xbox.v1.0.2.1-MYDUMP` (the folder that holds `MicrosoftGame.Config`).
 2. At "What the build needs", say yes to each missing tool (see Step 2).
 3. Choose the output and work folders under `T:\CL GTA6` (`BTA` and `work`) rather than the default `Documents\Leonida`.
-4. Build the **shaders** and **runtime** stages. The shader step takes about 40 minutes and uses tens of GB of disk. That is normal. A stopped build continues where it left off.
+4. Build **Run the port** (shaders and runtime). The shader step takes about 40 minutes and uses tens of GB of disk. That is normal. A stopped build continues where it left off.
+5. When it asks about **controller support**, say yes. The build then downloads the pinned SDL 3.4.20 source once (about 10 MB, hash-checked).
+   Without it the title never gets past its sign-in screen.
+The runtime stage also makes the BCPack predictor file (`work\shaders\bcpack\history.bcph`, about 3 minutes); the runtime finds it by itself.
 Check: `T:\CL GTA6\BTA\gta6rt.exe` exists and the work folder has a `shaders` folder.
-Prefer a terminal? The same build is `python -I make_game.py --game "<dump>" --work "T:\CL GTA6\work" --out "T:\CL GTA6\BTA" --stages check,shaders,runtime --jobs 8 --no-tui`.
+**Already built before controller support was in the menu, or pulled new code?** Choose Start, then **Runtime only**: it rebuilds
+`gta6rt.exe` (asking about controller support) without redoing the shaders.
+Prefer a terminal? The same build is `python -I make_game.py --game "<dump>" --work "T:\CL GTA6\work" --out "T:\CL GTA6\BTA" --stages check,shaders,runtime --fetch-sdl3 --jobs 8 --no-tui`.
 The extra graphics-shader step is not in the menu yet; the owner will say when to do it.
 
-## Step 6. Run the title and look at the logs
+## Step 6. Run the title with the menu
+Plug in a controller first. In `Leonida.bat` choose **Run the game**. It asks whether to use the keyboard as a pad (arrows = d-pad,
+Enter = A, Backspace = B, Esc = Menu) and how many minutes to run (15 is fine), then starts the title with logging.
+1. The title's window opens **minimised**. Restore it from the taskbar (a minimised window is never drawn into).
+2. Wait. It stays black, then grey, for several minutes while it loads.
+3. When the sign-in screen shows its button prompts at the bottom right, press **A** (Enter on the keyboard pad). The frame rate is
+   very low: press once and wait a few seconds before pressing again.
+4. Go on through Legal Notices, Finish setup and Navigation options. The logo and the loading art follow. That is as far as anyone has got.
+When it ends, the summary is printed; it is also `summary.txt` in the newest `run-...` folder under `T:\CL GTA6\work\runlogs`.
+Its notable lines should include `gameinput: SDL 3.4.20 gamepads`. If they don't, the runtime was built without controller support:
+choose Start, then Runtime only, and say yes to controller support.
+The same run from a terminal:
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\run_logged.ps1 -Port "T:\CL GTA6\BTA" -LogRoot "T:\CL GTA6\work\runlogs" -Experiments -TitleWindow -TimeoutSec 90
+powershell -ExecutionPolicy Bypass -File scripts\run_logged.ps1 -Port "T:\CL GTA6\BTA" -LogRoot "T:\CL GTA6\work\runlogs" -Experiments -TitleWindow -TimeoutSec 900
 ```
-Open `summary.txt` in the newest `run-...` folder. Expect: no crash, "still running at the time limit", thousands of D3D12 calls.
-The title's window appears **minimised**. Restore it from the taskbar (a minimised window cannot be presented into).
-**Make the BCPack predictor file once** (without it most textures fail to decompress and the title crashes during loading). From a
-"x64 Native Tools Command Prompt for VS 2022" (it needs the `cl` compiler), about 3 minutes:
-```bat
-cd /d "T:\CL GTA6\BananaTheftAuto"
-python -I tools\build_dstorage_history.py "T:\CL GTA6\GTA6.Xbox.v1.0.2.1-MYDUMP" --out "T:\CL GTA6\work\shaders\bcpack\history.bcph"
-```
-Then set `LEONIDA_DSTORAGE_HISTORY=T:\CL GTA6\work\shaders\bcpack\history.bcph` before running. Never commit that file.
-
-**Getting past the first screens needs a controller (or the keyboard pad), and a runtime built with SDL3.** The menu's runtime stage does
-not include SDL3, so after Step 5 rebuild the runtime once with it (this downloads the pinned SDL 3.4.20 source, about 10 MB, hash-checked):
-```powershell
-cd "T:\CL GTA6\BananaTheftAuto"
-powershell -ExecutionPolicy Bypass -File scriptsuild_runtime.ps1 -FetchSdl3 -jobs 8
-copy runtimeuild\gta6rt.exe "T:\CL GTA6\BTA\"
-copy runtimeuild\gta6rt_tls_host.dll "T:\CL GTA6\BTA\"
-```
-Plug in a controller before starting, restore the title's window, wait several minutes for loading, then press A. For the keyboard pad set `LEONIDA_KEYBOARD_PAD=1`
-(arrows = d-pad, Enter = A, Backspace = B, Esc = Menu). The log should say `gameinput: SDL 3.4.20 gamepads`.
 To save what the title presents: set `LEONIDA_CAPTURE=<an empty folder>` and `LEONIDA_CAPTURE_SOURCE=1` before the run; files
-`frame_*.ppm` and `source_*.ppm` appear. At the moment they are all black. That is the problem.
+`frame_*.ppm` and `source_*.ppm` appear. Keep them local.
 
 ## Step 7. Your first task
 Pick one, tell the owner which, and write the result in `PROGRESS.md`:
-- **A. Reproduce.** Do Step 6 on your PC and confirm the black frames and the `LEONIDA_DRAW_STATS=1` summary lines. (Easy, and proves your setup.)
-- **B. Find why the draws write nothing.** Open questions: depth test results, shader output values, whether vertex and constant data are filled. Start from
-  `runtime/src/vulkan_replay.h` (search `LEONIDA_DRAW_STATS`) and `runtime/src/fsdraw_probe.h`.
+- **A. Reproduce.** Do Step 6 on your PC and confirm you reach the loading art and the crash at about 300 s. Note your GPU and how long each screen took. (Easy, and proves your setup.)
+- **B. Find the GPU hang.** Which shader or dispatch is running when the device is lost (`LEONIDA_DEVICE_FAULT=1`); see the last entries of `PROGRESS.md`.
 - **C. Build step for the graphics shader library** so it needs no manual commands (see "Next steps" in `PROGRESS.md`).
 
 ## When something fails

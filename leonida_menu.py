@@ -35,6 +35,7 @@ PRESETS = {
     "3": ("check,shaders", "Shaders only", "translate the GPU programs", 30),
     "4": ("check", "Check game files only", "reads sizes, builds nothing", 0),
     "5": ("check,shaders,runtime,pipelines", "Port + GPU pipelines", "also compiles every pipeline for your GPU; hours", 35),
+    "6": ("check,runtime", "Runtime only", "rebuild gta6rt.exe after an update; shaders already built", 1),
 }
 MEM_PER_JOB_GB = 2   # this menu's planning estimate for one job, not a measured figure
 
@@ -1094,7 +1095,21 @@ def build_command(st, stages, wav):
     if "out" in st and stages != "check":
         cmd += ["--out", st["out"], "--work", st["work"]]
     cmd += ["--jobs", str(jobs_for(st, stages))]
+    if "runtime" in stages.split(",") and st.get("sdl3"):
+        cmd += ["--fetch-sdl3"]
     return cmd + (["--wav"] if wav else [])
+
+
+def step_sdl3(st, stages):
+    """Asks once whether the runtime may be built with controller support (SDL3, downloaded by CMake)."""
+    if os.name != "nt" or "runtime" not in stages.split(",") or "sdl3" in st:
+        return
+    heading("Controller support")
+    note("The title waits on its sign-in screen until a button is pressed. The runtime reads controllers (and the "
+         "keyboard pad) through SDL3, which the build downloads once: the pinned SDL 3.4.20 source from GitHub "
+         "(libsdl-org), about 10 MB, checked against its hash. Without it nothing gets past the first screen.")
+    st["sdl3"] = yesno("Build the runtime with controller support (downloads SDL3 source)", True)
+    save(st)
 
 
 def result_screen(st, code, log_path):
@@ -1195,12 +1210,63 @@ def install_flow(st, preset=None):
     if stages != "check" and not step_tools(st, stages, wav):
         pause()
         return
+    step_sdl3(st, stages)
     p()
     if select_menu("Start this build?", [[("y", "Yes", "start building"), ("q", "Quit", "back to the menu")]], "y", summary_rows(st, stages, wav)) != "y":
         return
     fix_stale_cmake_cache(stages)
     code, log_path = do_build(st, stages, wav)
     result_screen(st, code, log_path)
+
+
+def run_folder(st):
+    """The built port folder (gta6rt.exe and game_path.txt) and where run logs go."""
+    out = st.get("out") or DOCS_OUT
+    work = st.get("work") or os.path.join(out, "work")
+    return out, os.path.join(work, "runlogs")
+
+
+def screen_run(st):
+    heading("Run the game")
+    out, logs = run_folder(st)
+    if not os.path.isfile(os.path.join(out, "gta6rt.exe")) or not os.path.isfile(os.path.join(out, "game_path.txt")):
+        line("bad", "No built port in " + out, "choose Start first (Run the port), or set the output folder in Settings")
+        pause()
+        return
+    for text in ("The title's window opens minimised. Restore it from the taskbar (a minimised window is never drawn into).",
+                 "Loading takes several minutes. The screen stays black, then grey, until the sign-in screen shows its button prompts.",
+                 "Then press A on the controller (Enter on the keyboard pad). The frame rate is very low: press once and wait.",
+                 "Next come Legal Notices, Finish setup, Navigation options and the logo splash.",
+                 "Plug a controller in before starting. The runtime must be built with controller support (asked at Start)."):
+        for i, l in enumerate(wrap(text, T.width() - 8)):
+            p("   " + (paint(T.s["dot"], FRAME) + " " if i == 0 else "  ") + l)
+    p()
+    pad = yesno("Use the keyboard as a pad (arrows = d-pad, Enter = A, Backspace = B, Esc = Menu)", False)
+    mins = ask("Stop it after how many minutes", str(st.get("run_minutes", 15)))
+    try:
+        mins = max(1, int(mins))
+    except (TypeError, ValueError):
+        mins = 15
+    st["run_minutes"] = mins
+    save(st)
+    env = fresh_env()
+    if pad:
+        env["LEONIDA_KEYBOARD_PAD"] = "1"
+    os.makedirs(logs, exist_ok=True)
+    cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", os.path.join(ROOT, "scripts", "run_logged.ps1"),
+           "-Port", out, "-LogRoot", logs, "-Experiments", "-TitleWindow", "-TimeoutSec", str(mins * 60)]
+    note("Running. The summary appears here when it ends; closing the game ends it early.")
+    try:
+        code = subprocess.call(cmd, env=env)
+    except KeyboardInterrupt:
+        code = 130
+    p()
+    if code == 0:
+        note("Logs: " + logs + " (newest run-... folder). Look for 'gameinput: SDL 3.4.20 gamepads' above.")
+        note("Share only summary lines, never game files, captures or shader output.")
+    else:
+        line("warn", "The run script stopped with code %s." % code, "read the message above it")
+    pause()
 
 
 def screen_check(st):
@@ -1268,6 +1334,8 @@ def help_screen():
     for text in ("Start walks you through it: your game copy, what to build and where, then what to install. Nothing is installed until you say yes.",
                  "Find my game copy recognises the package by its files, so it works wherever the copy is, even in a folder you point at by mistake.",
                  "Stopping is safe. Press Ctrl+C during a build; finished steps are skipped when you start again.",
+                 "Run the game starts the built port with logging. Restore its window, wait for the button prompts, press A.",
+                 "After pulling new code, Start with Runtime only rebuilds gta6rt.exe without redoing the shaders.",
                  "Logs are in " + LOG_DIR + ". Your choices are in " + SETTINGS + " (paths and numbers only).",
                  "The same build runs from a script: py -I make_game.py --game <folder> --stages check,shaders,runtime (see --help).",
                  "Never share your game files or anything built from them."):
@@ -1277,7 +1345,8 @@ def help_screen():
     pause()
 
 
-HOME = [[("1", "Start", "your game, then build"), ("s", "Shaders only", "run just the shader step")],
+HOME = [[("1", "Start", "your game, then build"), ("s", "Shaders only", "run just the shader step"),
+         ("r", "Run the game", "start the built port and log it")],
         [("2", "Check this PC", "hardware, drives, tools"), ("3", "Find my game copy", "I look for it for you")],
         [("4", "What can be installed", "every tool and its source"), ("5", "Settings", "folders and speed"), ("6", "Help", "")],
         [("q", "Quit", "")]]
@@ -1298,6 +1367,8 @@ def home():
                 install_flow(st)
             elif k == "s":
                 install_flow(st, preset="3")
+            elif k == "r":
+                screen_run(st)
             elif k == "2":
                 screen_check(st)
             elif k == "3":

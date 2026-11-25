@@ -2511,7 +2511,7 @@ def build_pipeline_check(jobs: int) -> None:
 
 
 def runtime(game: str, out: str, v: dict, runtime_build: str | None = None, jobs: int = 1,
-            *, work: str | None = None) -> None:
+            *, work: str | None = None, fetch_sdl3: bool = False) -> None:
     destinations = [*RUNTIME_FILES, "game_path.txt"]
     if work is not None:
         destinations.append("shader_path.txt")
@@ -2531,8 +2531,11 @@ def runtime(game: str, out: str, v: dict, runtime_build: str | None = None, jobs
         build = cross_build_runtime(jobs)
     else:
         log("runtime: building")
+        # -FetchSdl3: CMake downloads the pinned SDL3 source once (hash-checked) for the controller shim
+        # (docs/gameinput.md). Without SDL3 the title gets no pad and cannot get past its sign-in screen.
         run([windows_powershell(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-             os.path.join(ROOT, "scripts", "build_runtime.ps1"), "-Jobs", str(jobs)])
+             os.path.join(ROOT, "scripts", "build_runtime.ps1"), "-Jobs", str(jobs),
+             *(["-FetchSdl3"] if fetch_sdl3 else [])])
         build = os.path.join(ROOT, "runtime", "build")
     artifacts = [os.path.join(build, name) for name in RUNTIME_FILES]
     for built in artifacts:
@@ -2884,7 +2887,7 @@ def _invoke_stage(name: str, fn) -> None:
 
 def run_build_stages(stages: list, *, game: str, work: str, out: str, v: dict, wav: bool, jobs: int,
                      runtime_build: str | None, emulate: bool, keep_emulated: bool,
-                     fallbacks: tuple[str, ...], overlap: bool = True) -> None:
+                     fallbacks: tuple[str, ...], overlap: bool = True, fetch_sdl3: bool = False) -> None:
     """Run build stages after check. With overlap=True (default), shaders/assets/runtime share the machine and
     pipelines starts once shaders (and a selected runtime rebuild) are ready. With overlap=False, stages run in order."""
     cpu_heavy = [s for s in ("shaders", "assets") if s in stages]
@@ -2900,7 +2903,7 @@ def run_build_stages(stages: list, *, game: str, work: str, out: str, v: dict, w
         assets(game, work, wav, jobs, dump_jobs=dump_jobs)
 
     def fn_runtime():
-        runtime(game, out, v, runtime_build, jobs, work=work)
+        runtime(game, out, v, runtime_build, jobs, work=work, fetch_sdl3=fetch_sdl3)
 
     def fn_pipelines():
         pipelines(work, out, jobs, runtime_build=runtime_build)
@@ -3039,6 +3042,9 @@ def main() -> int:
                     help="keep s0..s31 in 128 push-constant bytes and move heap/code base to a set-1 uniform "
                          "block; on by itself when the runtime's GPU reports maxPushConstantsSize below what "
                          "the shaders need (144, or 152 with --mesh-compute)")
+    ap.add_argument("--fetch-sdl3", action="store_true",
+                    help="Windows runtime stage: let CMake download the pinned SDL3 source once (about 10 MB, "
+                         "hash-checked) so gta6rt.exe is built with the controller shim (docs/gameinput.md)")
     ap.add_argument("--no-tui", action="store_true",
                     help="plain console logs (default when stdout is not a TTY); skip the LEONIDA setup screen "
                          "and per-stage log view")
@@ -3173,12 +3179,12 @@ def main() -> int:
             tui_board.set_summary(f"build 0% · {', '.join(build_stages)}")
             run_build_stages(stages, game=game, work=work, out=out, v=v, wav=a.wav, jobs=a.jobs,
                              runtime_build=runtime_build, emulate=emulate, keep_emulated=keep_emulated,
-                             fallbacks=fallbacks, overlap=overlap)
+                             fallbacks=fallbacks, overlap=overlap, fetch_sdl3=a.fetch_sdl3)
             tui_board.set_summary(f"finished in {(time.time() - t0) / 60:.0f} min")
     else:
         run_build_stages(stages, game=game, work=work, out=out, v=v, wav=a.wav, jobs=a.jobs,
                          runtime_build=runtime_build, emulate=emulate, keep_emulated=keep_emulated,
-                         fallbacks=fallbacks, overlap=overlap)
+                         fallbacks=fallbacks, overlap=overlap, fetch_sdl3=a.fetch_sdl3)
     log(f"finished in {(time.time() - t0) / 60:.0f} min")
     return 0
 
