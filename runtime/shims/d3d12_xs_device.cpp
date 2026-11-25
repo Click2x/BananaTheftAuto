@@ -2180,6 +2180,26 @@ std::uint64_t WINAPI proxy_slot(DeviceProxy* self, std::uint64_t a1, std::uint64
                                                  std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t,
                                                  std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t,
                                                  std::uint64_t, std::uint64_t, std::uint64_t);
+        // Diagnostic: the first call of each slot that is forwarded unchanged logs its first six arguments, each marked
+        // R when it points at committed readable memory. A slot the title uses with a different shape than the PC
+        // method (the Xbox device has methods the PC one lacks) shows up here before the PC code reads it wrongly.
+        {
+            static std::atomic<bool> args_logged{false};
+            if (first_call(args_logged)) {
+                auto readable = [](std::uint64_t v) -> char {
+                    MEMORY_BASIC_INFORMATION m{};
+                    if (v < 0x10000 || !VirtualQuery(reinterpret_cast<const void*>(v), &m, sizeof m)) return '-';
+                    return (m.State == MEM_COMMIT && !(m.Protect & (PAGE_NOACCESS | PAGE_GUARD))) ? 'R' : '-';
+                };
+                std::fprintf(stderr,
+                             "[rt] d3d12_xs: device slot %u forwarded args: 0x%llx%c 0x%llx%c 0x%llx%c 0x%llx%c 0x%llx%c 0x%llx%c\n",
+                             static_cast<unsigned>(Slot), static_cast<unsigned long long>(a1), readable(a1),
+                             static_cast<unsigned long long>(a2), readable(a2), static_cast<unsigned long long>(a3),
+                             readable(a3), static_cast<unsigned long long>(a4), readable(a4),
+                             static_cast<unsigned long long>(a5), readable(a5), static_cast<unsigned long long>(a6),
+                             readable(a6));
+            }
+        }
         auto fn = reinterpret_cast<ForwardFn>(self->real_vtable[Slot]);
         return fn(self->real, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14);
     }
