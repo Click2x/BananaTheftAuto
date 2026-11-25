@@ -188,7 +188,10 @@ inline std::atomic<uint64_t>& count(Op op) {
 
 // 0 when the page holding `addr` can be written; otherwise the exception a write raises there. A guard page loses
 // its guard on that first touch and reports STATUS_GUARD_PAGE_VIOLATION, as the system does for a real access.
-inline DWORD writable(uint64_t addr) {
+// When `region_end` is given and the answer is 0, it receives the end of the run of pages VirtualQuery reports with
+// the same state and protection, so every page from `addr` to there can be written too: a caller that checks a long
+// span can jump to it instead of asking again for each 4 KiB page.
+inline DWORD writable(uint64_t addr, uint64_t* region_end = nullptr) {
     MEMORY_BASIC_INFORMATION mbi;
     if (!VirtualQuery(reinterpret_cast<void*>(addr), &mbi, sizeof mbi) || mbi.State != MEM_COMMIT)
         return DWORD(STATUS_ACCESS_VIOLATION);
@@ -200,6 +203,7 @@ inline DWORD writable(uint64_t addr) {
     const DWORD p = mbi.Protect & 0xFF;
     const bool ok = p == PAGE_READWRITE || p == PAGE_WRITECOPY || p == PAGE_EXECUTE_READWRITE ||
                     p == PAGE_EXECUTE_WRITECOPY;
+    if (ok && region_end) *region_end = reinterpret_cast<uint64_t>(mbi.BaseAddress) + mbi.RegionSize;
     return ok ? 0 : DWORD(STATUS_ACCESS_VIOLATION);
 }
 
@@ -323,7 +327,8 @@ inline ClzeroLoopResult try_clzero_loop(const uint8_t* code, std::size_t avail, 
     const uint64_t end = start + total;
 
     for (uint64_t cur = start; cur < end;) {
-        const DWORD err = writable(cur);
+        uint64_t region_end = 0;
+        const DWORD err = writable(cur, &region_end);
         if (err) {
             if (cur > start) {
                 std::memset(reinterpret_cast<void*>(start), 0, std::size_t(cur - start));
@@ -339,8 +344,11 @@ inline ClzeroLoopResult try_clzero_loop(const uint8_t* code, std::size_t avail, 
             }
             return ClzeroLoopResult::faulted;
         }
+        // One VirtualQuery answers for the whole run of identical pages, so skip to its end (a 64 MiB batch was 16,384
+        // queries, one per page, and a title that zeroes gigabytes with CLZERO spent minutes of one core in them).
         const uint64_t next_page = (cur & ~uint64_t(0xFFF)) + 0x1000;
-        cur = next_page < end ? next_page : end;
+        const uint64_t next = region_end > next_page ? region_end : next_page;
+        cur = next < end ? next : end;
     }
 
     std::memset(reinterpret_cast<void*>(start), 0, std::size_t(total));

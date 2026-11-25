@@ -2533,7 +2533,7 @@ void* WINAPI proxy_get_resource_allocation_info(std::uint64_t a0, std::uint64_t 
     return call.ret;
 }
 
-// Slot 108, measured at the retail 1.0.2.1 call sites (game_scarlett_master.exe+0xabfda9 and +0xabfe07): the C ABI of
+// Slot 108, measured at two call sites in the retail 1.0.2.1 executable: the C ABI of
 // slot 26, with rcx = a 16-byte return buffer, rdx = the device, r8 = 1, r9 = 1 and two pointers on the stack. The title
 // copies 16 bytes back and compares the second qword with 0x1000, which reads like {SizeInBytes, Alignment}. By shape it
 // is a GetResourceAllocationInfo variant (visible mask, count, descs, one more pointer). The generic forwarder takes the
