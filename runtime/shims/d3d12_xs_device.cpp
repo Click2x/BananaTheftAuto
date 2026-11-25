@@ -2224,7 +2224,40 @@ std::uint64_t WINAPI proxy_slot(DeviceProxy* self, std::uint64_t a1, std::uint64
             }
         }
         auto fn = reinterpret_cast<ForwardFn>(self->real_vtable[Slot]);
-        return fn(self->real, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14);
+        const std::uint64_t result = fn(self->real, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14);
+        // Diagnostic: the result of the first call of a forwarded slot, and of the first one that looks like a failed
+        // HRESULT (bit 31 set in the low dword). The title checks most of these and takes an error path on a failure.
+        {
+            static std::atomic<bool> first_logged{false};
+            static std::atomic<bool> fail_logged{false};
+            const bool failed = (static_cast<std::uint32_t>(result) & 0x80000000u) != 0;
+            if (first_call(first_logged))
+                std::fprintf(stderr, "[rt] d3d12_xs: device slot %u forwarded first result 0x%llx\n",
+                             static_cast<unsigned>(Slot), static_cast<unsigned long long>(result));
+            if (failed && first_call(fail_logged)) {
+                std::fprintf(stderr, "[rt] d3d12_xs: device slot %u forwarded call FAILED, result 0x%08x, args 0x%llx 0x%llx 0x%llx 0x%llx\n",
+                             static_cast<unsigned>(Slot), static_cast<unsigned>(static_cast<std::uint32_t>(result)),
+                             static_cast<unsigned long long>(a1), static_cast<unsigned long long>(a2),
+                             static_cast<unsigned long long>(a3), static_cast<unsigned long long>(a4));
+                // Slot 41 is CreateCommandSignature on the PC: a1 is a D3D12_COMMAND_SIGNATURE_DESC (ByteStride,
+                // NumArgumentDescs, pArgumentDescs, NodeMask) and a2 the root signature. Print the description and
+                // the argument records (4 dwords each) so a refused argument type can be read off.
+                if constexpr (Slot == 41) {
+                    if (a1 >= 0x10000) {
+                        const auto* d = reinterpret_cast<const std::uint32_t*>(a1);
+                        const auto* args = *reinterpret_cast<const std::uint32_t* const*>(a1 + 8);
+                        const std::uint32_t n = d[1] > 16 ? 16 : d[1];
+                        std::fprintf(stderr, "[rt] d3d12_xs: slot 41 desc: ByteStride=%u NumArgumentDescs=%u NodeMask=%u rootsig=0x%llx\n",
+                                     d[0], d[1], *reinterpret_cast<const std::uint32_t*>(a1 + 16),
+                                     static_cast<unsigned long long>(a2));
+                        for (std::uint32_t i = 0; args && i < n; ++i)
+                            std::fprintf(stderr, "[rt] d3d12_xs: slot 41 arg %u: type=%u words %08x %08x %08x\n", i,
+                                         args[i * 4], args[i * 4 + 1], args[i * 4 + 2], args[i * 4 + 3]);
+                    }
+                }
+            }
+        }
+        return result;
     }
 }
 
