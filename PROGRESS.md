@@ -237,6 +237,10 @@ expected when pictures do appear.
   **none** of them, so the geometry call itself is well formed.
   Still open (not yet measured): depth test results, colour write masks, blend state, shader output values, and whether the vertex and
   constant data are filled (the log notes title memory with "no GPU copy").
+  The existing local probe (`LEONIDA_LOCAL_DIAGNOSTICS=1`, `src/fsdraw_probe.h`) shows the first fullscreen draws: three-vertex draws
+  with blending off and write mask 0xf, using the title's own shaders for the exe containers and a `PS_BlitColour` blit pass, into a
+  1-target image that is *not* the presented one. The very first frame is presented straight after a clear to (0,0,0,0), before any
+  draw, which explains frame 1 but not the later zero frames. Whether the scene images those blits read from are filled is the next question.
 Next: find out why those draws write nothing (their pipelines' shader tier, the vertex and constant data they read).
 
 ### Things that were wrong along the way (kept for honesty)
