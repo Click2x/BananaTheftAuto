@@ -71,6 +71,7 @@ powershell -ExecutionPolicy Bypass -File scripts\run_logged.ps1 -Port "T:\CL GTA
 ```
 Open `summary.txt` in the newest `run-...` folder. Expect: no crash, "still running at the time limit", thousands of D3D12 calls.
 The title's window appears **minimised**. Restore it from the taskbar (a minimised window cannot be presented into).
+**Getting past the first screens:** click the title's window and use the keyboard (the owner got through the sign-in, legal notices, finish-setup and navigation screens this way). Expect a long delay between a key press and the screen reacting; wait several seconds before pressing again. Which keys work best is still being recorded; add what you find to `PROGRESS.md`.
 To save what the title presents: set `LEONIDA_CAPTURE=<an empty folder>` and `LEONIDA_CAPTURE_SOURCE=1` before the run; files
 `frame_*.ppm` and `source_*.ppm` appear. At the moment they are all black. That is the problem.
 
