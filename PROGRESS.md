@@ -263,8 +263,7 @@ expected when pictures do appear.
   The sign-in screenshot is in `docs/screenshots/` (published at the owner's request); further captures and anything with game data stay local.
 - **It moves on once it gets input (2026-11-25 evening, reported by the owner, not measured by me).** With input supplied by the owner, the title went through
   its first-run screens: Legal Notices (copyright), "Finish setup?" (controls note) and a "Navigation experience" page (minimap options). All are drawn
-  by the recompiled title with its own shaders, fonts and textures; two screenshots are in `docs/screenshots/`. A third (the navigation page) is kept
-  local because the screenshot shows the owner's taskbar. How the input was given (pad, keyboard pad or script) has not been recorded yet; it needs to be, for the partner's guide.
+  by the recompiled title with its own shaders, fonts and textures; two screenshots are in `docs/screenshots/`. A third (the navigation page) is published with the owner's taskbar area painted over. How the input was given (pad, keyboard pad or script) has not been recorded yet; it needs to be, for the partner's guide.
 - The owner then sent a further screenshot: the Rockstar logo on a dark background (the title's logo splash, after the setup screens), also drawn by the
   recompiled title. Kept local (it shows the owner's taskbar). So the boot path goes: sign-in screen, legal notices, finish setup, navigation options, logo.
 Next: see why the title waits on the sign-in screen (input? account?). The earlier question, why draws wrote nothing, is answered: it was loading time.

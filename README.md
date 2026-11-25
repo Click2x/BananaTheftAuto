@@ -14,7 +14,7 @@ own copy of the game, checks your PC, offers the tools the build needs (asking f
 >
 > And once the owner gave it input, it moved on through its first-run screens (all drawn by the recompiled title itself):
 >
-> ![Legal notices screen](docs/screenshots/2026-11-25-legal-notices.webp) ![Finish setup screen](docs/screenshots/2026-11-25-finish-setup.webp)
+> ![Legal notices screen](docs/screenshots/2026-11-25-legal-notices.webp) ![Finish setup screen](docs/screenshots/2026-11-25-finish-setup.webp) ![Navigation options screen](docs/screenshots/2026-11-25-navigation-options.webp)
 > change what the build produces. It does not contain, download or share any game files.
 
 ## What this repository adds
