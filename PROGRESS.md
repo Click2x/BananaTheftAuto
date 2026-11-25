@@ -119,6 +119,10 @@ to the local log on the first failure. The four pairs whose parts could be read 
 magic, so they are raw state blocks; two of the six pointers point into different, much higher allocations (those are
 probably the shader code, which the title keeps outside the payload). Graphics pipelines therefore do not arrive in the
 FSPX form that slot 67 uses.
+The part sizes of the first 24 calls (logged locally) show structure: part 1 is always 0x184 or 0x17c bytes, part 2 varies
+(0x50 to 0xbc), and parts 3-4 and parts 5-6 each look like a pair that varies together (for example 0x1c0/0xd0, 0x140/0x90), the
+way slot 67's kind 6 (program) and kind 7 (records) do. Some calls have parts 3 and 4 empty (size 0) and only the last pair, which
+suggests the pairs are shader stages (a pipeline with one stage and one with two). That reading is a guess from sizes alone.
 
 ### Things that were wrong along the way (kept for honesty)
 - First guess for the failing `Close` calls: reopen lists when their allocator is reset. It reopened nothing; removed.

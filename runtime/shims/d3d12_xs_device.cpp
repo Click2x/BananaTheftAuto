@@ -2449,6 +2449,17 @@ std::uint64_t WINAPI proxy_slot(DeviceProxy* self, std::uint64_t a1, std::uint64
                 }
             }
         }
+        // Slot 57 (graphics pipeline from native parts?): log the six part sizes of the first 24 calls, to see which vary.
+        if constexpr (Slot == 57) {
+            static std::atomic<int> seen{0};
+            if (a1 >= 0x10000 && seen.fetch_add(1, std::memory_order_relaxed) < 24) {
+                const auto* w = reinterpret_cast<const std::uint64_t*>(a1);
+                std::fprintf(stderr, "[rt] d3d12_xs: slot 57 call sizes %llx %llx %llx %llx %llx %llx\n",
+                             static_cast<unsigned long long>(w[2]), static_cast<unsigned long long>(w[4]),
+                             static_cast<unsigned long long>(w[6]), static_cast<unsigned long long>(w[8]),
+                             static_cast<unsigned long long>(w[10]), static_cast<unsigned long long>(w[12]));
+            }
+        }
         auto fn = reinterpret_cast<ForwardFn>(self->real_vtable[Slot]);
         const std::uint64_t result = fn(self->real, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14);
         // Diagnostic: the result of the first call of a forwarded slot, and of the first one that looks like a failed
