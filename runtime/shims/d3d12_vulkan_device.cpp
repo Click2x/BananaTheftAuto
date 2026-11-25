@@ -953,7 +953,15 @@ struct DeviceState {
     // The format a texture description is created with, D24S8 and R9G9B9E5 UAV fallbacks included.
     Format texture_format(const D3D12_RESOURCE_DESC& desc) const {
         if (!xr_bias_compatible(desc)) return {};
-        if (desc.Format == DXGI_FORMAT_A8_UNORM &&
+        // Experiment, off by default (LEONIDA_A8_ANYFLAGS=1): do not refuse an A8_UNORM texture for its dimension, sample
+        // count or render-target, depth or UAV flags; it is then created as the R8_UNORM image the code below maps it to.
+        // A console title can create one, and the refusal fails its creation. Whether Vulkan accepts every such
+        // combination is not known; check_image_support still decides.
+        static const bool a8_any = [] {
+            char v[8] = {};
+            return GetEnvironmentVariableA("LEONIDA_A8_ANYFLAGS", v, sizeof v) > 0 && v[0] != '0';
+        }();
+        if (desc.Format == DXGI_FORMAT_A8_UNORM && !a8_any &&
             (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || desc.SampleDesc.Count != 1 ||
              (desc.Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL |
                             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))))

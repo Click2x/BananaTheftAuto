@@ -32,6 +32,10 @@
 
 #include <atomic>
 #include <cerrno>
+#include <chrono>
+#include <mutex>
+#include <thread>
+#include <vector>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -1325,6 +1329,56 @@ std::uint64_t WINAPI child_slot(ChildProxy* self, std::uint64_t a1, std::uint64_
                         reinterpret_cast<ExecFn>(self->real_vtable[10])(self->real, static_cast<UINT>(a1), array);
                         return hr_to_u64(S_OK);
                     }
+                }
+            }
+            // Experiment, off by default (LEONIDA_XS_FENCE12_CELL=1): the title calls fence slot 12, which is past the PC
+            // fence's slots, and uses its answer as a pointer (E_NOTIMPL, 0x80004001, was read as one and faulted).
+            // Upstream's notes on the retail boot say the slot returns the address of the fence's completed value.
+            // Serve it as the address of an 8-byte cell per fence that a helper thread keeps at the fence's completed
+            // value; the title can then poll the cell instead of calling GetCompletedValue. Whether the cell must be
+            // anywhere in particular, or hold more than the value, is not known.
+            if constexpr (K == ChildKind::fence && Slot == 12) {
+                static const bool cell_on = [] {
+                    char v[8] = {};
+                    return GetEnvironmentVariableA("LEONIDA_XS_FENCE12_CELL", v, sizeof v) > 0 && v[0] != '0';
+                }();
+                if (cell_on) {
+                    struct Entry {
+                        ID3D12Fence* fence;
+                        std::atomic<std::uint64_t>* cell;
+                    };
+                    static std::mutex entries_lock;
+                    static std::vector<Entry> entries;
+                    static std::atomic<bool> started{false};
+                    auto* fence = reinterpret_cast<ID3D12Fence*>(self->real);
+                    std::atomic<std::uint64_t>* cell = nullptr;
+                    {
+                        const std::lock_guard<std::mutex> lock(entries_lock);
+                        for (const Entry& e : entries)
+                            if (e.fence == fence) cell = e.cell;
+                        if (!cell) {
+                            fence->AddRef();  // kept for the life of the process: the helper thread reads it
+                            cell = new std::atomic<std::uint64_t>(fence->GetCompletedValue());
+                            entries.push_back({fence, cell});
+                        }
+                    }
+                    if (!started.exchange(true)) {
+                        std::thread([] {
+                            for (;;) {
+                                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                                const std::lock_guard<std::mutex> lock(entries_lock);
+                                for (const Entry& e : entries) {
+                                    const std::uint64_t v = e.fence->GetCompletedValue();
+                                    if (v > e.cell->load(std::memory_order_relaxed))
+                                        e.cell->store(v, std::memory_order_relaxed);
+                                }
+                            }
+                        }).detach();
+                    }
+                    static std::atomic<bool> told{false};
+                    if (first_call(told))
+                        std::fprintf(stderr, "[rt] d3d12_xs: fence slot 12 served as the address of a completed-value cell (experiment)\n");
+                    return reinterpret_cast<std::uint64_t>(cell);
                 }
             }
             bool expected = false;
