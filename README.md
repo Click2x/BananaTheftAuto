@@ -6,7 +6,8 @@ A standalone project built on **Leonida**, the static recompilation of Grand The
 Windows, which is itself a continuation of an earlier project (see Credits). This repository adds a guided Windows menu that finds your
 own copy of the game, checks your PC, offers the tools the build needs (asking first) and starts the build.
 
-> Status is whatever Leonida's is: **early, the game does not boot yet.** The menu makes the toolchain easier to set up and run; it does not
+> Status: **early, the game does not play yet.** On the author's PC the title now runs steadily with a window, but the window is black and no
+> draws are recorded; the day-by-day facts, measurements and mistakes are in **[PROGRESS.md](PROGRESS.md)**. The menu makes the toolchain easier to set up and run; it does not
 > change what the build produces. It does not contain, download or share any game files.
 
 ## What this repository adds
@@ -16,7 +17,7 @@ own copy of the game, checks your PC, offers the tools the build needs (asking f
 
 - `tools/shader_disasm.py`: one small fix to an upstream file (16 bytes per line into `llvm-mc`, which avoids hundreds of MB of repeated warnings per shader), with a test. Explained in [README_MENU.md](README_MENU.md#faster-shader-step); it is not in upstream yet.
 
-Everything else is Leonida, unchanged, with its full history.
+Runtime and shader work since the fork (off-by-default experiments, a CLZERO emulation speed-up, a Python decoder fallback that takes the translated shader library from 1,685 to 2,615 programs) is logged in [PROGRESS.md](PROGRESS.md). Everything else is Leonida, with its full history.
 
 ## Quick start
 
