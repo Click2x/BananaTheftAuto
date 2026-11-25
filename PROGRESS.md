@@ -78,7 +78,7 @@ from white to black.
 - `tests/test_shader_library.py` (23 tests) and `tests/test_shader_disasm.py` (31 tests) pass, `cpu_emulation_test` passes.
 
 ### Next steps
-1. Find the producer that fills the six pointer/size pairs and what the pairs are (state blocks and shader code per stage).
+1. (Superseded by the port above.) Find the producer that fills the six pointer/size pairs and what the pairs are (state blocks and shader code per stage).
 2. Find what waits on the completion counter, to confirm the hypothesis above.
 3. Scope a minimal graphics-pipeline path (the project's docs cover compute pipelines only); a first test is to answer slot 57
    with a stub pipeline object and see whether the title then proceeds to record draws.
@@ -145,6 +145,31 @@ has an answer: yes. Our hypothesis that failing slot 57 starves the title of dra
 boot graphs show draws once it is served. **Not brought in:** by the project's rule, upstream changes are chosen by hand; a list
 of candidates has been given to the user for a decision. (The layout facts here match, but this log only claims what was measured
 locally.)
+
+### Porting upstream's slot 57 path (on the local branch `port-slot57`; not on `main` yet)
+The native graphics-pipeline path is not separable from the rest of upstream (the device proxy, the Vulkan device and the shader
+library all changed around it), so it was brought in as a full merge of upstream `main` (71a769d7d) on a scratch branch, at the
+user's request. Eight files conflicted. Resolution: upstream's versions of `d3d12_com.cpp`, `d3d12_vulkan_device.cpp`,
+`startup_trace.h` (our `LEONIDA_STACKS` dumper re-applied on it), `shader_disasm.py` and its test, and `d3d12_xs_device.cpp`;
+ours kept in `shader_library.py` (the Python-decoder fallback, now passing `wave32` through) and `d3d12_xs.cpp` (the
+`LEONIDA_XS_WINDOW` presenter). **That drops our env-gated device experiments** (slot 61/108/105/queue/page-pool/fence/list-139
+switches) because upstream's proxy replaces the file; upstream's `d3d12_com.cpp` replaces our Close diagnostics and its A8
+handling replaces `LEONIDA_A8_ANYFLAGS`. They were not re-tested one by one.
+Measured on a 100 s run with the merged build (needs the new `gta6rt_tls_host.dll` beside the exe):
+
+| | before (ours) | merged |
+|---|---|---|
+| D3D12 calls traced | about 60,000 | 118,899 |
+| `DrawInstanced` recorded | 0 | 2,128 |
+| `SetPipelineState` | 0 | 2,128 |
+| `PresentX` ok | about 2,600 per 140 s | 1,064 |
+| native graphics pipelines (slot 57) | 0 of 10,241 refused | 1,258 created, 11,994 failed |
+
+No crash in the window. The 11,994 failures are because the translated graphics-program library (`fspx_gfx`) is empty here: no
+tool in the tree generates it (`docs/shader_library.md`: "Graphics pipelines are not translated by the build", and upstream's own
+boot sample also shows `0 fspx_gfx`). So draws are recorded but the pipelines that need a translated vertex or pixel shader
+cannot be built. The run's log also reports `no translated vs` for the game's own shaders. Tests on the merged branch: `ctest`
+420 of 420 pass (including `d3d12_close_parity`, which failed before), `test_shader_library.py` 24 and `test_shader_disasm.py` 31 pass.
 
 ### Things that were wrong along the way (kept for honesty)
 - First guess for the failing `Close` calls: reopen lists when their allocator is reset. It reopened nothing; removed.
