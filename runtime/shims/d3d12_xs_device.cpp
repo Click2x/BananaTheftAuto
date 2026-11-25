@@ -1341,6 +1341,27 @@ std::uint64_t WINAPI child_slot(ChildProxy* self, std::uint64_t a1, std::uint64_
             return hr_to_u64(E_NOTIMPL);
         }
         d3d12_trace::record(child_trace_name<K>(Slot));  // "called": the real object's result is not inspected
+        // Experiment, off by default (LEONIDA_XS_QUEUE_NEWER=1): the title calls queue slot 18 as
+        // GetTimestampFrequency(UINT64*), with an 8-byte local on its stack. The proxy forwards slot 18 to the PC queue's
+        // GetDesc, which writes a 16-byte D3D12_COMMAND_QUEUE_DESC through that pointer; the extra 8 bytes ({Flags 0,
+        // NodeMask 1} = 0x100000000) land on the title's saved rbx, and the title then reads through
+        // rbx = 0x100000000. Another project's notes say the console queue has two more methods before Signal, so that
+        // Signal is 16, Wait 17 and GetTimestampFrequency 18. With the variable set, serve those three that way.
+        if constexpr (K == ChildKind::queue && (Slot == 16 || Slot == 17 || Slot == 18)) {
+            static const bool newer = [] {
+                char v[8] = {};
+                return GetEnvironmentVariableA("LEONIDA_XS_QUEUE_NEWER", v, sizeof v) > 0 && v[0] != '0';
+            }();
+            if (newer) {
+                constexpr unsigned pc_slot = Slot == 16 ? kQueueSignal : Slot == 17 ? kQueueWait : 16;
+                const std::uint64_t first = Slot == 18 ? a1 : unwrap_object(a1);
+                using QueueFn = std::uint64_t(WINAPI*)(void*, std::uint64_t, std::uint64_t);
+                static std::atomic<bool> told{false};
+                if (first_call(told))
+                    std::fprintf(stderr, "[rt] d3d12_xs: queue slot %u served as PC slot %u (experiment)\n", Slot, pc_slot);
+                return reinterpret_cast<QueueFn>(self->real_vtable[pc_slot])(self->real, first, a2);
+            }
+        }
         if constexpr (K == ChildKind::queue && (Slot == kQueueSignal || Slot == kQueueWait)) a1 = unwrap_object(a1);
         UnwrappedArray unwrapped_lists;
         if constexpr (K == ChildKind::queue && Slot == 10) {
@@ -2232,6 +2253,27 @@ std::uint64_t WINAPI proxy_slot(DeviceProxy* self, std::uint64_t a1, std::uint64
                         std::fprintf(stderr, "\n");
                     }
                 }
+            }
+        }
+        // Experiment, off by default (LEONIDA_XS_PAGEPOOL=1): the title calls device slot 74 as
+        // RegisterPagePoolX(address, pages, uint32 index out) (from another project's notes; the logged arguments fit: the
+        // title's physical-page allocation, its page count, and a pointer into the exe's data) and asserts, with an int3,
+        // on a failed HRESULT. The PC slot 74 refuses it with E_INVALIDARG. With the variable set, answer S_OK and hand
+        // out an index; nothing is registered, so the pool does not back anything.
+        if constexpr (Slot == 74) {
+            static const bool pool = [] {
+                char v[8] = {};
+                return GetEnvironmentVariableA("LEONIDA_XS_PAGEPOOL", v, sizeof v) > 0 && v[0] != '0';
+            }();
+            if (pool && a3 >= 0x10000) {
+                static std::atomic<std::uint32_t> next_index{0};
+                const std::uint32_t index = next_index.fetch_add(1, std::memory_order_relaxed);
+                *reinterpret_cast<std::uint32_t*>(a3) = index;
+                static std::atomic<bool> told{false};
+                if (first_call(told))
+                    std::fprintf(stderr, "[rt] d3d12_xs: slot 74 served as RegisterPagePoolX(address 0x%llx, pages %llu) -> index %u (experiment)\n",
+                                 static_cast<unsigned long long>(a1), static_cast<unsigned long long>(a2 & 0xFFFFFFFFu), index);
+                return hr_to_u64(S_OK);
             }
         }
         // Experiment, off by default (LEONIDA_XS_SLOT61_STUB=1): answer slot 61 with 16 zero bytes in the output and
