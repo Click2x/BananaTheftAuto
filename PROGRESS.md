@@ -261,6 +261,10 @@ expected when pictures do appear.
   still loading it was drawing fades and blits of black. (The tint and force-state results themselves are real measurements.)
   The picture is static: it does not advance, so the title now waits on that screen (an account choice or an input), which is the next thing to look into.
   The sign-in screenshot is in `docs/screenshots/` (published at the owner's request); further captures and anything with game data stay local.
+- **It moves on once it gets input (2026-11-25 evening, reported by the owner, not measured by me).** With input supplied by the owner, the title went through
+  its first-run screens: Legal Notices (copyright), "Finish setup?" (controls note) and a "Navigation experience" page (minimap options). All are drawn
+  by the recompiled title with its own shaders, fonts and textures; two screenshots are in `docs/screenshots/`. A third (the navigation page) is kept
+  local because the screenshot shows the owner's taskbar. How the input was given (pad, keyboard pad or script) has not been recorded yet; it needs to be, for the partner's guide.
 Next: see why the title waits on the sign-in screen (input? account?). The earlier question, why draws wrote nothing, is answered: it was loading time.
  (their pipelines' shader tier, the vertex and constant data they read).
 

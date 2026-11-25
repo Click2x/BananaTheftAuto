@@ -11,6 +11,10 @@ own copy of the game, checks your PC, offers the tools the build needs (asking f
 > ![The title's own sign-in screen, drawn by the recompiled game on Windows/Vulkan (2026-11-25)](docs/screenshots/2026-11-25-sign-in-screen.png)
 >
 > *First picture from the recompiled title (2026-11-25): its sign-in screen, drawn with the game's own translated shaders and fonts, captured by `LEONIDA_CAPTURE` from the presenter.*
+>
+> And once the owner gave it input, it moved on through its first-run screens (all drawn by the recompiled title itself):
+>
+> ![Legal notices screen](docs/screenshots/2026-11-25-legal-notices.webp) ![Finish setup screen](docs/screenshots/2026-11-25-finish-setup.webp)
 > change what the build produces. It does not contain, download or share any game files.
 
 ## What this repository adds
