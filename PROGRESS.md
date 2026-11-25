@@ -178,9 +178,8 @@ No build stage translates the pipeline library's graphics programs, but the tool
 ```powershell
 # SPIRV-Tools (spirv-as, spirv-val) on PATH and LLVM_MC pointing at llvm-mc
 python -I tools\shader_library.py <package>\shaders.rpf --out <work>\gfxlib --stages vs,ps --disasm --carve <work>\shaders\dxbc --jobs 10
-python -I tools
-dna2spirv.py <work>\gfxlib\disasm --out <work>\gfxspirv
-# then put the result at <work>\shaders\spirvspx_gfx (its index.json carries stage and fspx_code_sha256 per program)
+python -I tools\rdna2spirv.py <work>\gfxlib\disasm --out <work>\gfxspirv
+# then put the result at <work>\shaders\spirv\fspx_gfx (its index.json carries stage and fspx_code_sha256 per program)
 ```
 
 `--carve` matters: the translator reads each program's input/output signatures from its source shader container, and without
@@ -266,7 +265,7 @@ expected when pictures do appear.
   by the recompiled title with its own shaders, fonts and textures; two screenshots are in `docs/screenshots/`. A third (the navigation page) is published with the owner's taskbar area painted over. The owner says the input was the **keyboard** in the title's window, and that it may have been very delayed (a low frame rate would explain a lag). Which keys, which build and whether it is the title reading the window's keyboard messages directly are not recorded yet: the build here has no SDL3, so no pad or keyboard pad is served.
 - The owner then sent a further screenshot: the Rockstar logo on a dark background (the title's logo splash, after the setup screens), also drawn by the
   recompiled title. Kept local (it shows the owner's taskbar). So the boot path goes: sign-in screen, legal notices, finish setup, navigation options, logo.
-- **Controller input works (2026-11-25 evening).** The runtime was rebuilt with SDL3 (`scriptsuild_runtime.ps1 -FetchSdl3 -jobs 10`; downloads
+- **Controller input works (2026-11-25 evening).** The runtime was rebuilt with SDL3 (`scripts\build_runtime.ps1 -FetchSdl3 -jobs 10`; downloads
   the pinned SDL 3.4.20 source once, hash-checked, with the owner's OK) and run with `LEONIDA_KEYBOARD_PAD=1`. The log shows `gameinput: SDL 3.4.20
   gamepads`, the keyboard pad attached and "connected Xbox One Controller (045e:02ff, player 1)"; the owner reports the controller moves the title
   along. The menu's runtime stage does not fetch SDL3, so a menu-built runtime has no pad (only upstream's `LEONIDA_INPUT_SCRIPT`).
@@ -284,6 +283,10 @@ expected when pictures do appear.
 - **Still crashing at about 300 s.** With the file in place: device lost again, now with 16 fault addresses of type 4 (instruction pointer, driver could not
   attribute them), so a shader that runs too long or never ends (a GPU hang, then Windows resets the GPU) is the leading guess. The title's null write
   follows the device loss, so it is a consequence. Just before, the frame rate fell from about 3 to 0 frames a second and one texture upload took 318 ms.
+- **The crash is a GPU timeout reset.** Windows' System log has an `nvlddmkm` event 153 ("Error occurred on GPUID") at the moment of each of the four
+  crashes, the NVIDIA driver's record of a GPU timeout and reset (Windows resets a GPU whose work runs past about 2 s). Skipping the four compute programs
+  dispatched most often before the hang changed nothing (same loss, same time). Still open: is the work merely too slow (frames fall to 0-3 a second before
+  it) or a shader that never finishes? Raising the Windows GPU timeout for one test would tell the two apart.
 Next: see why the title waits on the sign-in screen (input? account?). The earlier question, why draws wrote nothing, is answered: it was loading time.
  (their pipelines' shader tier, the vertex and constant data they read).
 
