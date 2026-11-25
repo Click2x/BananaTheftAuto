@@ -2030,6 +2030,9 @@ HRESULT proxy_create_compute_pipeline_from_native_code(DeviceProxy* self, const 
     static std::atomic<std::uint64_t> calls{0};
     const std::uint64_t call = calls.fetch_add(1, std::memory_order_relaxed) + 1;
     const HRESULT hr = self->real->CreateComputePipelineState(&pc_desc, *riid, out);
+    if (SUCCEEDED(hr) && call % 256 == 0)
+        std::fprintf(stderr, "[rt] d3d12_xs: slot 67: %llu calls so far (this one succeeded)\n",
+                     static_cast<unsigned long long>(call));
     if (FAILED(hr))
         std::fprintf(stderr,
                      "[rt] d3d12_xs: slot 67 call %llu failed with 0x%08lx (kind 0 %llu B, kind 1 %llu B, kind 6 %llu B, "
