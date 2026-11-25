@@ -21,7 +21,11 @@
 #pragma once
 
 #include <windows.h>
+#include <tlhelp32.h>
+#include <algorithm>
 #include <set>
+#include <thread>
+#include <vector>
 
 #include <atomic>
 #include <cerrno>
@@ -279,6 +283,123 @@ inline void close() {
     const std::lock_guard lock(detail::mutex());
     if (detail::file) std::fclose(detail::file);
     detail::file = nullptr;
+}
+
+// ---- LEONIDA_STACKS=30,90 (diagnostic, off by default) ----
+// At each listed number of seconds after start_stack_dumper_from_env() is first called (device creation), print the
+// stack of every other thread in the process, one line per thread with its name, its CPU time so far and up to 24
+// "module+offset" frames. A thread that is waiting shows where in the title it waits; one that is busy shows its CPU
+// time rising between two dumps. Each thread is suspended only long enough to read its context and unwind it, and
+// the frames are turned into text after it has been resumed (the module lookup takes a lock).
+namespace detail {
+struct ThreadFrames {
+    DWORD tid = 0;
+    std::string name;
+    unsigned long long cpu_ms = 0;
+    std::vector<DWORD64> frames;
+};
+
+inline std::vector<ThreadFrames> capture_all_threads() {
+    std::vector<ThreadFrames> out;
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) return out;
+    using GetDescriptionFn = HRESULT(WINAPI*)(HANDLE, PWSTR*);
+    auto get_description = reinterpret_cast<GetDescriptionFn>(
+        GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetThreadDescription"));
+    const DWORD pid = GetCurrentProcessId(), self = GetCurrentThreadId();
+    THREADENTRY32 entry{};
+    entry.dwSize = sizeof entry;
+    for (BOOL ok = Thread32First(snapshot, &entry); ok; ok = Thread32Next(snapshot, &entry)) {
+        if (entry.th32OwnerProcessID != pid || entry.th32ThreadID == self) continue;
+        HANDLE thread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE,
+                                   entry.th32ThreadID);
+        if (!thread) continue;
+        ThreadFrames tf;
+        tf.tid = entry.th32ThreadID;
+        FILETIME created{}, exited{}, kernel{}, user{};
+        if (GetThreadTimes(thread, &created, &exited, &kernel, &user)) {
+            ULARGE_INTEGER k{}, u{};
+            k.LowPart = kernel.dwLowDateTime; k.HighPart = kernel.dwHighDateTime;
+            u.LowPart = user.dwLowDateTime; u.HighPart = user.dwHighDateTime;
+            tf.cpu_ms = (k.QuadPart + u.QuadPart) / 10000;   // 100 ns units
+        }
+        if (get_description) {
+            PWSTR description = nullptr;
+            if (SUCCEEDED(get_description(thread, &description)) && description) {
+                tf.name = utf8_from_wide(description, static_cast<int>(wcslen(description)));
+                LocalFree(description);
+            }
+        }
+        if (SuspendThread(thread) != static_cast<DWORD>(-1)) {
+            CONTEXT c{};
+            c.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+            if (GetThreadContext(thread, &c)) {
+                for (int i = 0; i < 24 && c.Rip; ++i) {
+                    tf.frames.push_back(c.Rip);
+                    DWORD64 image_base = 0;
+                    PRUNTIME_FUNCTION fn = RtlLookupFunctionEntry(c.Rip, &image_base, nullptr);
+                    if (!fn) {   // a leaf function: the return address is at [rsp]
+                        if (!c.Rsp || IsBadReadPtr(reinterpret_cast<void*>(c.Rsp), 8)) break;
+                        c.Rip = *reinterpret_cast<DWORD64*>(c.Rsp);
+                        c.Rsp += 8;
+                        continue;
+                    }
+                    void* handler_data = nullptr;
+                    DWORD64 frame = 0;
+                    RtlVirtualUnwind(UNW_FLAG_NHANDLER, image_base, c.Rip, fn, &c, &handler_data, &frame, nullptr);
+                }
+            }
+            ResumeThread(thread);
+        }
+        CloseHandle(thread);
+        out.push_back(std::move(tf));
+    }
+    CloseHandle(snapshot);
+    return out;
+}
+}  // namespace detail
+
+inline void start_stack_dumper_from_env() {
+    static std::atomic<bool> started{false};
+    if (started.exchange(true)) return;
+    char value[64] = {};
+    if (GetEnvironmentVariableA("LEONIDA_STACKS", value, sizeof value) == 0) return;
+    std::vector<int> seconds;
+    for (const char* p = value; *p && seconds.size() < 8;) {
+        char* end = nullptr;
+        const long n = std::strtol(p, &end, 10);
+        if (end == p) break;
+        if (n > 0 && n < 3600) seconds.push_back(static_cast<int>(n));
+        p = end;
+        while (*p == ',' || *p == ' ') ++p;
+    }
+    if (seconds.empty()) return;
+    std::sort(seconds.begin(), seconds.end());
+    std::thread([seconds] {
+        const auto begin = std::chrono::steady_clock::now();
+        for (int s : seconds) {
+            std::this_thread::sleep_until(begin + std::chrono::seconds(s));
+            const std::vector<detail::ThreadFrames> threads = detail::capture_all_threads();
+            std::fprintf(stderr, "[rt] stacks: %d s after device creation, %zu other thread(s)\n", s, threads.size());
+            for (const detail::ThreadFrames& tf : threads) {
+                std::string line;
+                std::string json = "[";
+                for (size_t i = 0; i < tf.frames.size(); ++i) {
+                    const std::string w = where(tf.frames[i]);
+                    if (i) { line += " <- "; json += ','; }
+                    line += w;
+                    json += quote(w);
+                }
+                json += "]";
+                std::fprintf(stderr, "[rt] stacks: thread %lu \"%s\" cpu %llu ms: %s\n", static_cast<unsigned long>(tf.tid),
+                             tf.name.c_str(), tf.cpu_ms, line.c_str());
+                event("thread_stack", "\"after_s\":" + std::to_string(s) + ",\"tid\":" + std::to_string(tf.tid) +
+                                          ",\"name\":" + quote(tf.name) + ",\"cpu_ms\":" + std::to_string(tf.cpu_ms) +
+                                          ",\"stack\":" + json);
+            }
+            std::fflush(stderr);
+        }
+    }).detach();
 }
 
 }  // namespace rt::startup_trace

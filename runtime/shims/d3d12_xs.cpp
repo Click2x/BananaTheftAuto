@@ -23,6 +23,7 @@
 #include "d3d12_trace.h"
 #include "d3d12_xs_device.h"
 #include "d3d12_xs_rootsig.h"
+#include "startup_trace.h"
 #ifdef LEONIDA_VULKAN_DEVICE
 #include "xbox_present.h"  // pulls in the Vulkan headers, which only the Vulkan-device targets have
 #endif
@@ -136,6 +137,58 @@ static void open_window_and_attach_presentation(ID3D12Device* vulkan, IUnknown* 
     if (GetEnvironmentVariableA("LEONIDA_XS_PRESENT_X_SLOT", slot, sizeof slot) == 0)
         SetEnvironmentVariableA("LEONIDA_XS_PRESENT_X_SLOT", "32");
 
+    if (flag[0] == 't' || flag[0] == 'T') {
+        // LEONIDA_XS_WINDOW=title: the title makes a window of its own (measured: class "sgaWindowClass", caption
+        // "Americas", in this process), so present into that one instead of opening a second window. It does not exist
+        // yet when the device is created, so a helper thread looks for it (up to a minute), then builds the presenter
+        // and attaches it; PresentX calls made before that are answered E_NOTIMPL, as without a presenter.
+        vulkan->AddRef();  // the helper thread uses the device after this function has returned
+        IUnknown* attach_to = proxy;
+        std::thread([vulkan, attach_to] {
+            struct Find {
+                DWORD pid;
+                HWND found;
+            } find{GetCurrentProcessId(), nullptr};
+            HWND target = nullptr;
+            for (int i = 0; i < 600 && !target; ++i) {   // 600 x 100 ms
+                find.found = nullptr;
+                EnumWindows(
+                    [](HWND hwnd, LPARAM l) -> BOOL {
+                        auto* f = reinterpret_cast<Find*>(l);
+                        DWORD pid = 0;
+                        GetWindowThreadProcessId(hwnd, &pid);
+                        wchar_t cls[64] = {};
+                        GetClassNameW(hwnd, cls, 63);
+                        if (pid == f->pid && IsWindowVisible(hwnd) && std::wcscmp(cls, L"sgaWindowClass") == 0) {
+                            f->found = hwnd;
+                            return FALSE;
+                        }
+                        return TRUE;
+                    },
+                    reinterpret_cast<LPARAM>(&find));
+                target = find.found;
+                if (!target) Sleep(100);
+            }
+            if (!target) {
+                std::fprintf(stderr, "[rt] present: no title window (class sgaWindowClass) appeared within a minute\n");
+                vulkan->Release();
+                return;
+            }
+            auto presenter = rt::d3d12::create_window_presenter(vulkan, target);
+            if (!presenter) {
+                std::fprintf(stderr, "[rt] present: no Vulkan window presenter for the title's window\n");
+                vulkan->Release();
+                return;
+            }
+            auto* xbox = new rt::d3d12::XboxPresentation(std::move(presenter));
+            const bool attached = rt::d3d12::attach_xbox_presentation(attach_to, xbox);
+            std::fprintf(stderr, "[rt] present: presenter %s on the title's own window %p (experiment)\n",
+                         attached ? "attached" : "created but not attached", static_cast<void*>(target));
+            vulkan->Release();
+        }).detach();
+        return;
+    }
+
     struct WindowState {
         HWND hwnd = nullptr;
         HANDLE ready = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -189,6 +242,8 @@ HRESULT WINAPI D3D12XboxCreateDevice(IUnknown* adapter, const void* params, cons
     if (!out) return result(method, E_POINTER);
     *out = nullptr;
     if (!riid) return result(method, E_POINTER);
+
+    rt::startup_trace::start_stack_dumper_from_env();   // LEONIDA_STACKS=30,90: every thread's stack at those seconds
 
     const bool tracing = rt::d3d12_trace::enabled();
     if (!tracing)

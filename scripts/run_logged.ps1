@@ -26,6 +26,8 @@ param(
     [switch]$NoVulkan,                                   # leave the backend at its default instead of Vulkan
     [switch]$Experiments,                                # turn on every off-by-default LEONIDA_XS_* / LEONIDA_A8_* experiment
                                                          # below and open a window for PresentX (implies -SkipInt3)
+    [switch]$TitleWindow,                                # with -Experiments: present into the title's own window ("Americas",
+                                                         # class sgaWindowClass) instead of opening a second one
     [string[]]$ExtraArgs = @()
 )
 
@@ -58,6 +60,7 @@ if ($Experiments) {
                       'LEONIDA_XS_FENCE12_CELL', 'LEONIDA_XS_LIST139_RESET', 'LEONIDA_XS_WINDOW') {
         Set-Item -Path "Env:$name" -Value '1'
     }
+    if ($TitleWindow) { $env:LEONIDA_XS_WINDOW = 'title' }
 }
 
 $argList = @('--run', "`"$GameExe`"", '--trace-d3d12', '--trace', "`"$trace`"", '--overlay', "`"$Overlay`"") + $ExtraArgs
