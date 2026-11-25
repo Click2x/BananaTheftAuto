@@ -71,6 +71,14 @@ powershell -ExecutionPolicy Bypass -File scripts\run_logged.ps1 -Port "T:\CL GTA
 ```
 Open `summary.txt` in the newest `run-...` folder. Expect: no crash, "still running at the time limit", thousands of D3D12 calls.
 The title's window appears **minimised**. Restore it from the taskbar (a minimised window cannot be presented into).
+**Make the BCPack predictor file once** (without it most textures fail to decompress and the title crashes during loading). From a
+"x64 Native Tools Command Prompt for VS 2022" (it needs the `cl` compiler), about 3 minutes:
+```bat
+cd /d "T:\CL GTA6\BananaTheftAuto"
+python -I tools\build_dstorage_history.py "T:\CL GTA6\GTA6.Xbox.v1.0.2.1-MYDUMP" --out "T:\CL GTA6\work\shaders\bcpack\history.bcph"
+```
+Then set `LEONIDA_DSTORAGE_HISTORY=T:\CL GTA6\work\shaders\bcpack\history.bcph` before running. Never commit that file.
+
 **Getting past the first screens needs a controller (or the keyboard pad), and a runtime built with SDL3.** The menu's runtime stage does
 not include SDL3, so after Step 5 rebuild the runtime once with it (this downloads the pinned SDL 3.4.20 source, about 10 MB, hash-checked):
 ```powershell

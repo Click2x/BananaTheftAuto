@@ -271,6 +271,19 @@ expected when pictures do appear.
   gamepads`, the keyboard pad attached and "connected Xbox One Controller (045e:02ff, player 1)"; the owner reports the controller moves the title
   along. The menu's runtime stage does not fetch SDL3, so a menu-built runtime has no pad (only upstream's `LEONIDA_INPUT_SCRIPT`).
   Earlier "keyboard" input before this build is unexplained (the docs say the title reads gamepads only).
+- **Past the setup screens with scripted presses (2026-11-25 evening).** `LEONIDA_INPUT_SCRIPT` (A every 20 s from 90 s) with the SDL3 build takes the
+  title through its setup screens to the loading screens: full-screen character artwork that fades in and out (kept local).
+- **Crash at about 300 s, three runs in a row.** Run 1 (owner's controller) and run 2 (script): Vulkan device lost. With `LEONIDA_DEVICE_FAULT=1` the
+  driver reported an invalid *write* address, while a compute dispatch on the compute queue and a copy on the direct queue were in flight. Run 3 skipped
+  that compute program (`LEONIDA_SKIP_COMPUTE`) and ended instead with a null-pointer write inside the title.
+- **Missing BCPack predictor file found and made.** Before each crash the trace held 189 DirectStorage reads failing with `E_DSTORAGE_DECOMPRESSION_ERROR`,
+  and the log said "could not open the local BCPack predictor profile": `history.bcph` was never generated (the runtime stage of `make_game.py` makes it;
+  our runtime was built by hand). Made locally with `tools\build_dstorage_history.py <dump> --out <work>\shaders\bcpack\history.bcph`, run inside the
+  Visual Studio environment (it compiles a small helper with `cl`; about 3 minutes). With `LEONIDA_DSTORAGE_HISTORY` pointing at it the failures fell
+  **from 189 to 5**, and the loading art shows.
+- **Still crashing at about 300 s.** With the file in place: device lost again, now with 16 fault addresses of type 4 (instruction pointer, driver could not
+  attribute them), so a shader that runs too long or never ends (a GPU hang, then Windows resets the GPU) is the leading guess. The title's null write
+  follows the device loss, so it is a consequence. Just before, the frame rate fell from about 3 to 0 frames a second and one texture upload took 318 ms.
 Next: see why the title waits on the sign-in screen (input? account?). The earlier question, why draws wrote nothing, is answered: it was loading time.
  (their pipelines' shader tier, the vertex and constant data they read).
 
