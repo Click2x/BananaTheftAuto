@@ -97,6 +97,12 @@ only keeps the first few outcomes), and each success makes our layer build a Vul
 shader. That is the most likely source of about ten threads in `nvgpucomp64.dll` working for the whole run: the driver compiling
 thousands of translated shaders. Measured on a 100 s run: slot 67 is called only about 304 times in total (calls 302 and 304 failed with `E_INVALIDARG`, the rest succeeded) and then stops. So the driver compiles about 300 pipelines for minutes while the title makes no further pipeline calls: consistent with the title waiting for them, but the wait itself is not yet shown.
 
+### What the title's threads wait on (90 s run, dumps at 40 s and 80 s)
+Across both dumps, 38 of the non-NVIDIA thread samples sit in one kernel wait (a wait on an object), 18 in another, and about 38
+(the busiest title thread among them) in a sleep call made from the title's own code, that is a poll-and-sleep loop. The busiest
+title thread is therefore most likely polling for something, which the layer is not providing, rather than computing. Which
+object or condition it polls is not yet identified (needs the title's call sites looked at locally).
+
 ### Things that were wrong along the way (kept for honesty)
 - First guess for the failing `Close` calls: reopen lists when their allocator is reset. It reopened nothing; removed.
 - First reading of the extra window: "not part of the run". It belongs to the game itself (the title's own window).
