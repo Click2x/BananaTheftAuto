@@ -272,6 +272,9 @@ def main(argv=None) -> int:
                                     "copy that container to <name>.dxbc for the translator's signature reads")
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2),
                     help="llvm-mc processes for --disasm (default: half the CPUs)")
+    ap.add_argument("--llvm-only", action="store_true",
+                    help="with --disasm, keep llvm-mc's listing even for a program it reports invalid words in (by "
+                         "default such a program is decoded again with tools/rdna2_decode.py when that finds fewer)")
     a = ap.parse_args(argv)
     if a.jobs < 1:
         ap.error("--jobs must be at least 1")
@@ -390,12 +393,29 @@ def main(argv=None) -> int:
         index.append(entry)
         written += 1
 
+    python_decoded = []   # the index entries of programs whose listing came from the Python decoder
+
     def one(job):
         entry, name, code, start, end = job
         asm, invalid, err = disasm.disasm(code, a.mcpu)
+        note = ""
+        if invalid and not a.llvm_only:
+            # An llvm-mc that does not know every word the console GPU's code uses (measured: llvm-mc 21.1.8 flags
+            # 2 to 100 words in about a thousand of this library's compute programs) leaves them "undecodable", and the
+            # translator refuses a program that falls through into one. The project's own decoder reads the same
+            # bytes into the same listing format, so use it when it finds fewer invalid words.
+            try:
+                py_asm, py_invalid, _ = disasm.disasm(code, a.mcpu, backend="python")
+            except Exception:   # a bug in the second decoder must not cost the program its llvm-mc listing
+                py_asm, py_invalid = None, invalid
+            if py_asm is not None and py_invalid < invalid:
+                note = f"; decoded with tools/rdna2_decode.py: llvm-mc reported {invalid} invalid words\n"
+                asm, invalid, err = py_asm, py_invalid, ""
+                python_decoded.append(entry)
         entry["invalid_words"] = invalid
         with open(os.path.join(disasm_dir, name + ".s"), "w", encoding="utf-8", newline="\n") as f:
             f.write(f"; {name}  code 0x{start:x}..0x{end:x} (fspx), {a.mcpu}, {invalid} invalid words\n")
+            f.write(note)
             f.write(asm)
             if err.strip():
                 f.write("\n; --- llvm-mc messages ---\n; " + err.strip().replace("\n", "\n; ") + "\n")
@@ -403,6 +423,10 @@ def main(argv=None) -> int:
     if work:
         with ThreadPoolExecutor(a.jobs) as ex:   # each job waits on its own llvm-mc process
             list(ex.map(one, work))
+        if python_decoded:
+            still = sum(1 for e in python_decoded if e["invalid_words"])
+            print(f"{len(python_decoded)} program(s) decoded with tools/rdna2_decode.py after llvm-mc reported invalid "
+                  f"words ({still} of them still have some)")
 
     def named(stages):
         return {k: names[v["program"]] for k, v in stages.items()}

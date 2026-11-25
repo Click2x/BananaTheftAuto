@@ -137,6 +137,25 @@ steps count as out of date and run again** on the next build. On that run the ma
 about 3 hours) was **not** redone: the build reached the BVH-builder step within about 4 minutes. Not yet recorded: the
 end of a complete build with the fix.
 
+## More library shaders translated: a Python-decoder fallback
+
+With `llvm-mc` 21.1.8, **999 of the library's 2,684 compute programs** were refused by the translator, almost all as
+"fall-through into undecodable words": `llvm-mc` reported 2 to 100 invalid words in them. 775 of the 999 are variants of one
+shader (`CS_RaytracingResolve`); the rest are single big compute shaders (cascaded shadow rendering, particle updates,
+visibility). The 1,684 programs that translated had no invalid words. The title's own pipeline cache then fails at device slot 67
+with "no translated compute shader" for the ones that were refused.
+
+`tools/shader_library.py` now decodes such a program again with the project's own decoder (`tools/rdna2_decode.py`) when
+`llvm-mc` reports invalid words and the Python decoder finds fewer, and says so in the listing (a second line
+`; decoded with tools/rdna2_decode.py: llvm-mc reported N invalid words`). `--llvm-only` turns it off. Two tests in
+`tests/test_shader_library.py` cover both modes (all 23 tests in that file pass).
+
+**On a real build (one Windows PC, 2026-11-25):** 957 programs were decoded this way (15 of them still had some invalid
+words). The translated library programs went from **1,685 to 2,615 of 2,684**, and every shard reported all of its translated
+programs passing `spirv-val` (the stage took 11 minutes, 8 minutes 43 seconds of it translating). 69 programs are still
+refused, for lane-mask instructions (`s_flbit_i32_b64`, `s_bitreplicate_b64_b32`), a few undecodable words, and encodings
+the translator's own cross-check rejects. I have not checked whether the extra programs change what the game does.
+
 ## Where things are saved
 
 - Choices (paths and numbers, no secrets): `%LOCALAPPDATA%\Leonida\settings.json`

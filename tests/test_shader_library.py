@@ -10,6 +10,7 @@ import io
 import json
 import os
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -355,6 +356,48 @@ class Main(unittest.TestCase):
                              hashlib.sha256(kind0()).hexdigest())
             self.assertEqual(shader_meta.fspx_code_sha256_file(disasm_file, "lib_cs_00003"),
                              hashlib.sha256(sl.program(sample(), sl.parse(sample()), 3)).hexdigest())
+
+    def run_disasm_with_fake_mc(self, *extra):
+        """Unpack the sample library with --disasm, with an llvm-mc that answers every real program with two
+        'invalid instruction encoding' warnings (and answers shader_disasm's one-instruction probe cleanly)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            src = os.path.join(tmp, "shaders.rpf")
+            with open(src, "wb") as f:
+                f.write(archive(sample()))
+            fake = os.path.join(tmp, "fake_mc.py")
+            with open(fake, "w", encoding="utf-8") as f:
+                f.write("import sys\n"
+                        "text = sys.stdin.read()\n"
+                        "print('\\ts_endpgm ; encoding: [0x00,0x00,0x81,0xbf]')\n"
+                        "if len(text.split()) > 4:\n"
+                        "    sys.stderr.write('<stdin>:1:1: warning: invalid instruction encoding\\n' * 2)\n")
+            out = os.path.join(tmp, "out")
+            env = dict(os.environ, LLVM_MC=f'"{sys.executable}" "{fake}"')
+            p = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "tools", "shader_library.py"), src, "--out", out,
+                                "--disasm", "--jobs", "1", *extra], capture_output=True, text=True, env=env)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            with open(os.path.join(out, "disasm", "lib_cs_00003.s"), encoding="utf-8") as f:
+                listing = f.read()
+            with open(os.path.join(out, "index.json"), encoding="utf-8") as f:
+                index = {e["file"]: e for e in json.load(f)}
+            return p.stdout, listing, index
+
+    def test_python_decoder_replaces_a_listing_llvm_mc_finds_invalid_words_in(self):
+        text, listing, index = self.run_disasm_with_fake_mc()
+        self.assertIn("4 program(s) decoded with tools/rdna2_decode.py after llvm-mc reported invalid words "
+                      "(0 of them still have some)", text)
+        self.assertIn(", 0 invalid words\n", listing.splitlines(True)[0])
+        self.assertIn("; decoded with tools/rdna2_decode.py: llvm-mc reported 2 invalid words\n", listing)
+        self.assertNotIn("llvm-mc messages", listing)
+        self.assertEqual(index["lib_cs_00003.dxbc"]["invalid_words"], 0)
+
+    def test_llvm_only_keeps_llvm_mcs_listing(self):
+        text, listing, index = self.run_disasm_with_fake_mc("--llvm-only")
+        self.assertNotIn("rdna2_decode", text)
+        self.assertNotIn("rdna2_decode", listing)
+        self.assertIn(", 2 invalid words\n", listing.splitlines(True)[0])
+        self.assertIn("llvm-mc messages", listing)
+        self.assertEqual(index["lib_cs_00003.dxbc"]["invalid_words"], 2)
 
     def test_stage_filter_and_saved_input(self):
         with tempfile.TemporaryDirectory() as tmp:
