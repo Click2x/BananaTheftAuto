@@ -288,6 +288,18 @@ inline uint64_t gpr_read(const CONTEXT* c, int r) {
 
 enum class ClzeroLoopResult { no_match, ok, faulted };
 
+// Zero `n` bytes at `addr`; false if any of them cannot be written (an access violation or a guard page, caught here, so
+// part of the span may already be zero, which is harmless). Kept as a function of its own because __try cannot sit in a
+// function that needs C++ object unwinding.
+inline bool zero_if_writable(uint64_t addr, std::size_t n) {
+    __try {
+        std::memset(reinterpret_cast<void*>(addr), 0, n);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 inline void apply_cmp_flags(CONTEXT* c, uint64_t lhs, uint64_t rhs) {
     const uint64_t diff = lhs - rhs;
     uint32_t flags = c->EFlags & ~DWORD(0x8D5u);  // clear CF(0), PF(2), AF(4), ZF(6), SF(7), OF(11)
@@ -326,8 +338,25 @@ inline ClzeroLoopResult try_clzero_loop(const uint8_t* code, std::size_t avail, 
     if (total > kMaxBatch) total = kMaxBatch;
     const uint64_t end = start + total;
 
-    for (uint64_t cur = start; cur < end;) {
+    static std::atomic<uint64_t> stat_queries{0}, stat_batches{0}, stat_bytes{0}, stat_clock{0};
+    stat_batches.fetch_add(1, std::memory_order_relaxed);
+
+    // VirtualQuery is slow here: it works out how far a run of identical pages extends, and in a title's multi-gigabyte
+    // committed memory that run is enormous, so one query per small block (a title that clears thousands of 1-7 KiB blocks
+    // a second) kept a core at about 94% (a 30-sample profile: 27 of 30 samples inside VirtualQuery). So the span last
+    // found writable is remembered, per thread, and a block inside it is written directly; if that write faults (the
+    // memory was freed or protected since) the exact check below runs as before. One difference: a guard page that
+    // appeared inside a remembered span faults once inside zero_if_writable, which consumes the fault, instead of being
+    // delivered to the program.
+    static thread_local uint64_t cached_lo = 0, cached_hi = 0;
+    bool done = false;
+    if (start >= cached_lo && end <= cached_hi) {
+        done = zero_if_writable(start, std::size_t(total));
+        if (!done) cached_lo = cached_hi = 0;
+    }
+    for (uint64_t cur = start; !done && cur < end;) {
         uint64_t region_end = 0;
+        stat_queries.fetch_add(1, std::memory_order_relaxed);
         const DWORD err = writable(cur, &region_end);
         if (err) {
             if (cur > start) {
@@ -344,17 +373,34 @@ inline ClzeroLoopResult try_clzero_loop(const uint8_t* code, std::size_t avail, 
             }
             return ClzeroLoopResult::faulted;
         }
+        if (cur == start) {   // remember the span the first query found writable
+            cached_lo = start;
+            cached_hi = region_end > start ? region_end : start;
+        }
         // One VirtualQuery answers for the whole run of identical pages, so skip to its end (a 64 MiB batch was 16,384
-        // queries, one per page, and a title that zeroes gigabytes with CLZERO spent minutes of one core in them).
+        // queries, one per page).
         const uint64_t next_page = (cur & ~uint64_t(0xFFF)) + 0x1000;
         const uint64_t next = region_end > next_page ? region_end : next_page;
         cur = next < end ? next : end;
     }
 
-    std::memset(reinterpret_cast<void*>(start), 0, std::size_t(total));
+    if (!done) std::memset(reinterpret_cast<void*>(start), 0, std::size_t(total));
     c->Rax = end;
     apply_cmp_flags(c, end, limit);
     if (end >= limit) c->Rip += 12;
+    // Diagnostic: a line for every 256 MiB zeroed by this emulation, so a title that clears a lot of memory with CLZERO
+    // (and the cost of doing it one exception at a time) shows up in the log. Cheap: three atomics per batch.
+    const uint64_t before = stat_bytes.fetch_add(total, std::memory_order_relaxed);
+    if ((before >> 28) != ((before + total) >> 28)) {
+        const uint64_t now = GetTickCount64();
+        uint64_t first = 0;
+        stat_clock.compare_exchange_strong(first, now, std::memory_order_relaxed);
+        std::fprintf(stderr, "[rt] cpu: CLZERO emulation has zeroed %llu MiB in %llu batches (%llu VirtualQuery calls), %.1f s since the first line\n",
+                     static_cast<unsigned long long>((before + total) >> 20),
+                     static_cast<unsigned long long>(stat_batches.load(std::memory_order_relaxed)),
+                     static_cast<unsigned long long>(stat_queries.load(std::memory_order_relaxed)),
+                     (now - stat_clock.load(std::memory_order_relaxed)) / 1000.0);
+    }
     return ClzeroLoopResult::ok;
 }
 
@@ -371,9 +417,19 @@ inline LONG CALLBACK handler(EXCEPTION_POINTERS* info) {
         const uint64_t fault_rip = c->Rip;
         const ClzeroLoopResult lr = try_clzero_loop(code, avail, c, &fault);
         if (lr == ClzeroLoopResult::ok) {
-            if (count(d.op).fetch_add(1, std::memory_order_relaxed) == 0)
+            static std::atomic<uint64_t> first_tick{0};
+            const uint64_t n = count(d.op).fetch_add(1, std::memory_order_relaxed) + 1;
+            if (n == 1) {
+                first_tick.store(GetTickCount64(), std::memory_order_relaxed);
                 std::fprintf(stderr, "[rt] cpu: this CPU has no %s; emulating it (first at %p)\n", name(d.op),
                              reinterpret_cast<void*>(fault_rip));
+            } else if ((n & 0x3FFFF) == 0) {
+                // Diagnostic: each emulation is one exception, so a title that clears many small blocks pays for the
+                // exceptions, not for the bytes. A line every 262,144 emulations gives the rate.
+                std::fprintf(stderr, "[rt] cpu: %llu CLZERO loops emulated, %.1f s since the first\n",
+                             static_cast<unsigned long long>(n),
+                             (GetTickCount64() - first_tick.load(std::memory_order_relaxed)) / 1000.0);
+            }
             return EXCEPTION_CONTINUE_EXECUTION;
         }
         if (lr == ClzeroLoopResult::faulted) {

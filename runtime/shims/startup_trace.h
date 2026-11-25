@@ -362,10 +362,10 @@ inline std::vector<ThreadFrames> capture_all_threads() {
 inline void start_stack_dumper_from_env() {
     static std::atomic<bool> started{false};
     if (started.exchange(true)) return;
-    char value[64] = {};
+    char value[512] = {};
     if (GetEnvironmentVariableA("LEONIDA_STACKS", value, sizeof value) == 0) return;
     std::vector<int> seconds;
-    for (const char* p = value; *p && seconds.size() < 8;) {
+    for (const char* p = value; *p && seconds.size() < 64;) {   // up to 64 dumps: a list of seconds is a sampling profile
         char* end = nullptr;
         const long n = std::strtol(p, &end, 10);
         if (end == p) break;

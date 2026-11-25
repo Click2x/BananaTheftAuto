@@ -13,6 +13,10 @@ executable locally to understand a call, and by reading the public notes of othe
 [DesignWithTommy/Neonbridge](https://github.com/DesignWithTommy/Neonbridge)). **Only facts were taken from them (what a slot
 is, what a signature looks like); none of their code was used.** Where a fact came from there, the entry says so.
 
+**Upstream policy:** this is a standalone project. Nothing is pulled from the original Leonida repository automatically. It was
+merged in once (upstream `main` at `66d4f5aa3`, 2026-11-24); further upstream changes are looked at by hand and only the
+relevant ones are brought in.
+
 ## How to reproduce a run
 
 ```powershell
@@ -61,8 +65,7 @@ from white to black.
 - The title runs steadily (more than 5 minutes without a crash), clears its back buffer about 11 times a second and presents it.
   **It records no pipelines, draws, dispatches or copies.** The window is black.
 - About 35 of the title's threads are waiting. Two kinds of thread are busy: roughly ten inside NVIDIA's shader compiler
-  (`nvgpucomp64.dll`, a full core each for the whole run) and one of ours, which spends about 94% of a core in the CLZERO emulation.
-  Why is being investigated.
+  (`nvgpucomp64.dll`, a full core each for the whole run) and one thread that spent about 94% of a core in the CLZERO emulation (cause found and reduced, see below).
 - Refused calls that may matter and are not understood yet: device slot 57 (`DeserializePipelineStateX` per XCL) 10,241 times;
   the console texture-layout calls (`XGCreateTextureComputer`); queue slot 31 (looks like a page-pool call); allocator slot 9.
 
@@ -74,13 +77,21 @@ from white to black.
 - `tests/test_shader_library.py` (23 tests) and `tests/test_shader_disasm.py` (31 tests) pass, `cpu_emulation_test` passes.
 
 ### Next steps
-1. Find why one of our threads spends about 94% of a core in the CLZERO emulation (a per-region `VirtualQuery` did not change it).
+1. ~~CLZERO emulation CPU~~ done: see "CLZERO emulation" below.
 2. Find what the roughly ten NVIDIA shader-compiler threads are compiling for minutes, and whether the title waits for it.
 3. Find what the title's render thread waits on (thread-stack dumps with `LEONIDA_STACKS`), now that it presents.
 4. Look at the refused calls listed above (slot 57 x 10,241, texture-layout calls, queue slot 31, allocator slot 9).
 5. Keep this log and the README current; commit and push to this repo's `main` at each small milestone.
 
+### CLZERO emulation: cause found and reduced
+A 30-sample stack profile put 27 samples in `VirtualQuery` (the emulation's check that memory is writable), called once per
+small block the title clears. The span last found writable is now remembered per thread and blocks inside it are written
+directly, with the exact check as fallback if that write faults. Measured on one 62 s run: no sample in the emulation any more;
+the title thread that did the clearing used 11.7 s of CPU over 50 s (about 23%, and that is now the title's own code, not ours),
+down from about 94% of a core. Behavioural difference, noted in the code: a guard page appearing inside a remembered span is
+consumed instead of delivered. `cpu_emulation_test` passes. The NVIDIA compiler threads are unchanged (about 41 s CPU each in 50 s).
+
 ### Things that were wrong along the way (kept for honesty)
 - First guess for the failing `Close` calls: reopen lists when their allocator is reset. It reopened nothing; removed.
 - First reading of the extra window: "not part of the run". It belongs to the game itself (the title's own window).
-- The first CLZERO fix (one `VirtualQuery` per region, not per page) did not reduce that thread's CPU use.
+- The first CLZERO fix (one `VirtualQuery` per region, not per page) did not reduce that thread's CPU use; remembering the writable span did.
