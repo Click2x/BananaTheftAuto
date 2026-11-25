@@ -74,6 +74,7 @@ from white to black.
   failure, `d3d12_close_parity` (the layer refuses 17 scissor rectangles, this Windows build's WARP accepts them), **fails the
   same way with `d3d12_com.cpp` and `d3d12_trace.h` at their upstream versions**, so it is not caused by this work. It looks
   like WARP behaviour on Windows build 26200 and has not been looked into further.
+- A later full run with `ctest -j8` also failed `device_proxy_trace`; run alone it passes (0.05 s), so it looks sensitive to parallel runs. Not investigated further.
 - `tests/test_shader_library.py` (23 tests) and `tests/test_shader_disasm.py` (31 tests) pass, `cpu_emulation_test` passes.
 
 ### Next steps
