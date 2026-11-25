@@ -2478,6 +2478,14 @@ std::uint64_t WINAPI proxy_slot(DeviceProxy* self, std::uint64_t a1, std::uint64
                             std::fprintf(stderr, "[rt] d3d12_xs: slot 57 desc +0x%02x: %016llx %016llx %016llx %016llx\n", i * 8,
                                          static_cast<unsigned long long>(w[i]), static_cast<unsigned long long>(w[i + 1]),
                                          static_cast<unsigned long long>(w[i + 2]), static_cast<unsigned long long>(w[i + 3]));
+                        // First 16 bytes of each pointed-to part, to see whether they carry the FSPX magic.
+                        for (int i = 1; i <= 11; i += 2) {
+                            const auto* part = reinterpret_cast<const std::uint8_t*>(w[i]);
+                            if (!part || w[i] < 0x10000) continue;
+                            char hex[40] = {};
+                            for (int k = 0; k < 16; ++k) std::snprintf(hex + k * 2, 3, "%02x", part[k]);
+                            std::fprintf(stderr, "[rt] d3d12_xs: slot 57 part +0x%02x starts %s\n", i * 8, hex);
+                        }
                     }
                 }
                 if constexpr (Slot == 41) {

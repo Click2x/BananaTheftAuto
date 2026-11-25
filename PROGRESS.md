@@ -114,7 +114,10 @@ pattern as slot 67's four pairs for compute. That fits XCL's name for it (pipeli
 graphics counterpart. If so, **the title cannot create any graphics pipeline, which would explain why it never records a
 draw.** Not yet proven: the pair contents are not decoded, and this does not say how the graphics shaders would be
 translated (the pipeline library's graphics programs are not translated by this project yet). The layer dumps these words
-to the local log on the first failure.
+to the local log on the first failure. The four pairs whose parts could be read start with binary words, not the `FSPX`
+magic, so they are raw state blocks; two of the six pointers point into different, much higher allocations (those are
+probably the shader code, which the title keeps outside the payload). Graphics pipelines therefore do not arrive in the
+FSPX form that slot 67 uses.
 
 ### Things that were wrong along the way (kept for honesty)
 - First guess for the failing `Close` calls: reopen lists when their allocator is reset. It reopened nothing; removed.
