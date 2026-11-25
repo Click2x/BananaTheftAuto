@@ -28,6 +28,7 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <string>
 
 namespace rt::d3d12_xs {
 namespace native_pipeline_detail {
@@ -125,6 +126,17 @@ inline void fill_fixed_state(const np::FixedState& s, D3D12_GRAPHICS_PIPELINE_ST
     pc.NumRenderTargets = s.rt_count;
     for (unsigned i = 0; i < s.rt_count; ++i) pc.RTVFormats[i] = static_cast<DXGI_FORMAT>(s.rtv_formats[i]);
     pc.SampleDesc.Count = s.sample_count;
+    // LOCAL DIAGNOSTIC (LEONIDA_FORCE_FIXED=1): ignore blob A's write mask, depth test and culling, so a draw that is
+    // only being masked, depth-failed or culled shows up. Not a fix.
+    // LEONIDA_FORCE_FIXED is a list of letters: m = write mask all, b = blending off, d = depth and stencil off, c = no culling (1 = all).
+    static const std::string force = [] { const char* v = std::getenv("LEONIDA_FORCE_FIXED"); return std::string(v ? v : ""); }();
+    const bool all = force == "1";
+    if (all || force.find('m') != std::string::npos)
+        for (auto& rt : pc.BlendState.RenderTarget) rt.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    if (all || force.find('b') != std::string::npos)
+        for (auto& rt : pc.BlendState.RenderTarget) rt.BlendEnable = FALSE;
+    if (all || force.find('d') != std::string::npos) { pc.DepthStencilState.DepthEnable = FALSE; pc.DepthStencilState.StencilEnable = FALSE; }
+    if (all || force.find('c') != std::string::npos) pc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 }
 
 template <D3D12_PIPELINE_STATE_SUBOBJECT_TYPE T, typename P>

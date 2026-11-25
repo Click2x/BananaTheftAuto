@@ -849,6 +849,11 @@ public:
                              t.first_layer, t.layer_count, color[0], color[1], color[2], color[3], count);
             }
         }
+        // LOCAL DIAGNOSTIC (LEONIDA_CLEAR_TINT=1): clear every colour target to opaque magenta instead, so a draw that
+        // writes nothing leaves magenta and a draw that writes zeros leaves black.
+        static const bool tint = [] { const char* v = std::getenv("LEONIDA_CLEAR_TINT"); return v && *v && *v != '0'; }();
+        const FLOAT magenta[4] = {1.0f, 0.0f, 1.0f, 1.0f};
+        if (tint) color = magenta;
         check(list_.clear_render_target(*reinterpret_cast<const leonida::TargetView*>(view.ptr),
                                         {color[0], color[1], color[2], color[3]}, to_rects(count, rects)));
     }

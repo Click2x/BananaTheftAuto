@@ -241,6 +241,17 @@ expected when pictures do appear.
   with blending off and write mask 0xf, using the title's own shaders for the exe containers and a `PS_BlitColour` blit pass, into a
   1-target image that is *not* the presented one. The very first frame is presented straight after a clear to (0,0,0,0), before any
   draw, which explains frame 1 but not the later zero frames. Whether the scene images those blits read from are filled is the next question.
+- Opus's advice (asked 2026-11-25) put "the draws write nothing" first and said to split it with a tint test. Two new off-by-default
+  diagnostics: `LEONIDA_CLEAR_TINT=1` (every colour clear becomes opaque magenta) and `LEONIDA_FORCE_FIXED=<letters>`
+  (`m` write mask all, `b` blending off, `d` depth and stencil off, `c` no culling, `1` all).
+  - Tint on: both presented images stay **pure magenta** (mean 255,0,255 over all 8,294,400 texels) in every captured frame, so none of the
+    draws changes a single pixel of them.
+  - Forcing `m`+`b` together (first run: `1`, then the three-way split `m`/`d`/`c`): the images turn **black** from frame 61 on; forcing `d` or `c` alone
+    leaves them magenta. So blob A's decoded blend or write mask is what keeps the draws from touching the image, and once it is
+    out of the way the draws write zeros, so the pixel shaders' output (or their inputs) are zero as well. Both problems are real.
+  - The split of `m` (write mask) from `b` (blending) was built and run but its lines were not captured (the diagnostics variable was missing in that
+    shell), so which of the two it is is **not yet known**.
+  - `LEONIDA_FSDRAW_POKE_CB=1` printed no POKE line, so that test did not run; it is inconclusive.
 Next: find out why those draws write nothing (their pipelines' shader tier, the vertex and constant data they read).
 
 ### Things that were wrong along the way (kept for honesty)
