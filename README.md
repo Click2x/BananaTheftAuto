@@ -6,7 +6,7 @@ A standalone project built on **Leonida**, the static recompilation of Grand The
 Windows, which is itself a continuation of an earlier project (see Credits). This repository adds a guided Windows menu that finds your
 own copy of the game, checks your PC, offers the tools the build needs (asking first) and starts the build.
 
-> Status: **early, the game does not play yet.** On the author's PC the title now runs steadily with a window and records tens of thousands of draws a minute (every graphics pipeline it asks for is created), but what is on screen has not been checked yet; the day-by-day facts, measurements and mistakes are in **[PROGRESS.md](PROGRESS.md)**. The menu makes the toolchain easier to set up and run; it does not
+> Status: **early, the game does not play yet.** On the author's PC the title now runs steadily with a window and records about 9,000 draw calls a minute (every graphics pipeline it asks for is created), but what is on screen has not been checked yet; the day-by-day facts, measurements and mistakes are in **[PROGRESS.md](PROGRESS.md)**. The menu makes the toolchain easier to set up and run; it does not
 > change what the build produces. It does not contain, download or share any game files.
 
 ## What this repository adds
