@@ -10,6 +10,8 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
+#include <thread>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -21,6 +23,9 @@
 #include "d3d12_trace.h"
 #include "d3d12_xs_device.h"
 #include "d3d12_xs_rootsig.h"
+#ifdef LEONIDA_VULKAN_DEVICE
+#include "xbox_present.h"  // pulls in the Vulkan headers, which only the Vulkan-device targets have
+#endif
 #include "shims.h"
 
 namespace {
@@ -117,6 +122,62 @@ HRESULT WINAPI create_root_signature_deserializer(const void* data, SIZE_T size,
     return fn(data, size, iid, out);
 }
 
+#ifdef LEONIDA_VULKAN_DEVICE
+// Experiment, off by default (LEONIDA_XS_WINDOW=1): the title presents with PresentX, a queue method, and nothing in
+// --run created a window or attached a presenter, so every call was answered E_NOTIMPL and no picture could appear.
+// Open a window on a thread of its own (a window needs the message loop of the thread that made it), build the
+// Vulkan presenter on it, and attach rt::d3d12::XboxPresentation to the device proxy, as xbox_present_test does. The
+// console queue's PresentX is slot 32 on the newer layout (30 on the older one); the variable moves it unless it is
+// already set. The presenter lives for the rest of the process.
+static void open_window_and_attach_presentation(ID3D12Device* vulkan, IUnknown* proxy) {
+    char flag[8] = {};
+    if (GetEnvironmentVariableA("LEONIDA_XS_WINDOW", flag, sizeof flag) == 0 || flag[0] == '0') return;
+    char slot[8] = {};
+    if (GetEnvironmentVariableA("LEONIDA_XS_PRESENT_X_SLOT", slot, sizeof slot) == 0)
+        SetEnvironmentVariableA("LEONIDA_XS_PRESENT_X_SLOT", "32");
+
+    struct WindowState {
+        HWND hwnd = nullptr;
+        HANDLE ready = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    };
+    auto* state = new WindowState;  // shared with the thread below; never freed (process lifetime)
+    std::thread([state] {
+        WNDCLASSW wc{};
+        wc.lpfnWndProc = DefWindowProcW;
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.lpszClassName = L"LeonidaTitleWindow";
+        wc.hCursor = LoadCursorW(nullptr, reinterpret_cast<LPCWSTR>(IDC_ARROW));
+        RegisterClassW(&wc);
+        RECT frame{0, 0, 1280, 720};
+        AdjustWindowRect(&frame, WS_OVERLAPPEDWINDOW, FALSE);
+        state->hwnd = CreateWindowExW(0, wc.lpszClassName, L"Leonida (experiment: PresentX window)", WS_OVERLAPPEDWINDOW,
+                                      CW_USEDEFAULT, CW_USEDEFAULT, frame.right - frame.left, frame.bottom - frame.top,
+                                      nullptr, nullptr, wc.hInstance, nullptr);
+        if (state->hwnd) ShowWindow(state->hwnd, SW_SHOWNORMAL);
+        SetEvent(state->ready);
+        MSG msg;
+        while (state->hwnd && GetMessageW(&msg, nullptr, 0, 0) > 0) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }).detach();
+    if (WaitForSingleObject(state->ready, 10000) != WAIT_OBJECT_0 || !state->hwnd) {
+        std::fprintf(stderr, "[rt] present: the experiment window could not be created\n");
+        return;
+    }
+    auto presenter = rt::d3d12::create_window_presenter(vulkan, state->hwnd);
+    if (!presenter) {
+        std::fprintf(stderr, "[rt] present: no Vulkan window presenter for the experiment window\n");
+        return;
+    }
+    auto* xbox = new rt::d3d12::XboxPresentation(std::move(presenter));
+    const bool attached = rt::d3d12::attach_xbox_presentation(proxy, xbox);
+    std::fprintf(stderr, "[rt] present: window and presenter %s (experiment; PresentX slot %s)\n",
+                 attached ? "attached" : "created but not attached",
+                 slot[0] ? slot : "32");
+}
+#endif
+
 // Measured shape: D3D12XboxCreateDevice(adapter, params, riid, out), where params is a 24-word block that is only
 // logged and not used to create the device. The struct's total size is unknown, so the log reads 24 x 32-bit words
 // (96 bytes) and no more. The PC D3D12CreateDevice needs a minimum feature level instead: create_host_device asks for
@@ -180,6 +241,7 @@ HRESULT WINAPI D3D12XboxCreateDevice(IUnknown* adapter, const void* params, cons
             return result(method, vhr);
         }
         rt::d3d12::set_device_outer(vulkan, static_cast<IUnknown*>(*out));
+        open_window_and_attach_presentation(vulkan, static_cast<IUnknown*>(*out));
         if (!tracing)
             std::fprintf(stderr, "[rt] d3d12_xs: D3D12XboxCreateDevice -> proxy %p (Vulkan device %p)\n", *out,
                          static_cast<void*>(vulkan));

@@ -24,6 +24,8 @@ param(
     [int]$TimeoutSec = 60,
     [switch]$SkipInt3,                                   # LEONIDA_SKIP_INT3=1: step over int3 asserts (diagnostic only)
     [switch]$NoVulkan,                                   # leave the backend at its default instead of Vulkan
+    [switch]$Experiments,                                # turn on every off-by-default LEONIDA_XS_* / LEONIDA_A8_* experiment
+                                                         # below and open a window for PresentX (implies -SkipInt3)
     [string[]]$ExtraArgs = @()
 )
 
@@ -47,7 +49,16 @@ $trace = Join-Path $dir 'trace.json'; $summary = Join-Path $dir 'summary.txt'
 if (-not $NoVulkan) { $env:LEONIDA_D3D12 = 'vulkan' }
 $env:DISABLE_VULKAN_OBS_CAPTURE = '1'     # upstream's advice when OBS is installed
 $env:DISABLE_RTSS_LAYER = '1'             # and for MSI Afterburner / RTSS
-if ($SkipInt3) { $env:LEONIDA_SKIP_INT3 = '1' }
+if ($SkipInt3 -or $Experiments) { $env:LEONIDA_SKIP_INT3 = '1' }
+if ($Experiments) {
+    # Each of these is off by default in the runtime; what each one does is explained where it is read, in
+    # runtime/shims (d3d12_xs_device.cpp, d3d12_xs.cpp, d3d12_vulkan_device.cpp). Diagnostic experiments: not fixes.
+    foreach ($name in 'LEONIDA_XS_SLOT61_STUB', 'LEONIDA_XS_SLOT108_GRI', 'LEONIDA_XS_CMDSIG105', 'LEONIDA_XS_CMDSIG_MESH',
+                      'LEONIDA_XS_QUEUE35_EXEC', 'LEONIDA_XS_PAGEPOOL', 'LEONIDA_XS_QUEUE_NEWER', 'LEONIDA_A8_ANYFLAGS',
+                      'LEONIDA_XS_FENCE12_CELL', 'LEONIDA_XS_LIST139_RESET', 'LEONIDA_XS_WINDOW') {
+        Set-Item -Path "Env:$name" -Value '1'
+    }
+}
 
 $argList = @('--run', "`"$GameExe`"", '--trace-d3d12', '--trace', "`"$trace`"", '--overlay', "`"$Overlay`"") + $ExtraArgs
 $started = Get-Date
@@ -80,7 +91,7 @@ function Short($s, $n = 170) { if ($s.Length -gt $n) { $s.Substring(0, $n) + '..
 $out = New-Object System.Collections.Generic.List[string]
 $out.Add(("run: {0}   timeout: {1}s   ran: {2:N1}s" -f $stamp, $TimeoutSec, ($ended - $started).TotalSeconds))
 $out.Add("game: $GameExe")
-$out.Add("flags: vulkan=$(-not $NoVulkan) skip_int3=$($SkipInt3.IsPresent) overlay=$Overlay")
+$out.Add("flags: vulkan=$(-not $NoVulkan) skip_int3=$($SkipInt3.IsPresent -or $Experiments.IsPresent) experiments=$($Experiments.IsPresent) overlay=$Overlay")
 if ($timedOut) { $out.Add("RESULT: still running at the time limit, so it was stopped (no crash seen in this window)") }
 else { $out.Add(("RESULT: exited with code {0} (0x{0:X})" -f $exit)) }
 
