@@ -127,9 +127,15 @@ The fix sends 16 bytes per line. Measured on the two programs below, with the re
 
 A test in `tests/test_shader_disasm.py` fails on the old code. All 31 tests in that file pass.
 
+**On a real build (one Windows PC, 2026-11-25):** with the old code the pipeline-library step had written 16.7 GB for its
+first 973 of 2,684 programs after 30 minutes (152 listings over 50 MB each). With the fix the whole step ran in about 4 minutes:
+2,684 programs, **1.39 GB in total, the largest listing 3.6 MB**, and `library.json` and `index.json` were written. The
+shader translation that follows (5 shards) was running normally when this was written; its result is not recorded here.
+
 Because `make_game.py` fingerprints this file, **changing it makes the finished AMD-upscaler, BVH-builder and pipeline-library
-steps count as out of date and run again** on the next build. Not yet checked by a full build: whether the main shader
-translation is also redone, and whether the whole pipeline-library step finishes without error.
+steps count as out of date and run again** on the next build. On that run the main shader translation (the part that took
+about 3 hours) was **not** redone: the build reached the BVH-builder step within about 4 minutes. Not yet recorded: the
+end of a complete build with the fix.
 
 ## Where things are saved
 
