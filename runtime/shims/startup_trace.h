@@ -183,7 +183,19 @@ inline void log_exception(const EXCEPTION_POINTERS& info) {
                      ",\"address\":" + quote(hex(r.ExceptionInformation[1]));
             }
             if (r.ExceptionCode == kCppException) f += ",\"cpp\":true";
-            if (info.ContextRecord) f += ",\"stack\":" + stack_from(*info.ContextRecord);
+            if (info.ContextRecord) {
+                f += ",\"stack\":" + stack_from(*info.ContextRecord);
+                // The general registers at the fault, to tell a bad pointer in the title's own data from one a callee
+                // clobbered (a callee-saved register such as rbx that no longer holds what the title put there).
+                const CONTEXT& c = *info.ContextRecord;
+                f += ",\"regs\":{\"rax\":" + quote(hex(c.Rax)) + ",\"rbx\":" + quote(hex(c.Rbx)) +
+                     ",\"rcx\":" + quote(hex(c.Rcx)) + ",\"rdx\":" + quote(hex(c.Rdx)) +
+                     ",\"rsi\":" + quote(hex(c.Rsi)) + ",\"rdi\":" + quote(hex(c.Rdi)) +
+                     ",\"rbp\":" + quote(hex(c.Rbp)) + ",\"rsp\":" + quote(hex(c.Rsp)) +
+                     ",\"r8\":" + quote(hex(c.R8)) + ",\"r9\":" + quote(hex(c.R9)) +
+                     ",\"r12\":" + quote(hex(c.R12)) + ",\"r13\":" + quote(hex(c.R13)) +
+                     ",\"r14\":" + quote(hex(c.R14)) + ",\"r15\":" + quote(hex(c.R15)) + "}";
+            }
             event("exception", f);
         }
     } catch (...) {

@@ -1302,6 +1302,30 @@ std::uint64_t WINAPI child_slot(ChildProxy* self, std::uint64_t a1, std::uint64_
                         return false;
                     }))
                     return hr_to_u64(hr);
+                // Experiment, off by default (LEONIDA_XS_QUEUE35_EXEC=1): the title submits its command lists through
+                // queue slot 35, which is past the PC queue's 19 slots and was answered E_NOTIMPL; the title then used
+                // that answer as a pointer. Its arguments in the log are (count, list array, 1, flags), the shape of an
+                // ExecuteCommandLists with two more values, so serve it as ExecuteCommandLists(count, lists), with the
+                // list proxies unwrapped as for slot 10. What the extra values mean is not known.
+                if constexpr (Slot == 35) {
+                    static const bool exec = [] {
+                        char v[8] = {};
+                        return GetEnvironmentVariableA("LEONIDA_XS_QUEUE35_EXEC", v, sizeof v) > 0 && v[0] != '0';
+                    }();
+                    if (exec) {
+                        UnwrappedArray lists;
+                        if (!lists.fill(a2, a1)) return hr_to_u64(E_OUTOFMEMORY);
+                        const std::uint64_t array = lists.data() ? lists.data() : a2;
+                        static std::atomic<bool> told{false};
+                        if (first_call(told))
+                            std::fprintf(stderr, "[rt] d3d12_xs: queue slot 35 served as ExecuteCommandLists(count %llu), values 0x%llx 0x%llx (experiment)\n",
+                                         static_cast<unsigned long long>(a1), static_cast<unsigned long long>(a3),
+                                         static_cast<unsigned long long>(a4));
+                        using ExecFn = void(WINAPI*)(void*, UINT, std::uint64_t);
+                        reinterpret_cast<ExecFn>(self->real_vtable[10])(self->real, static_cast<UINT>(a1), array);
+                        return hr_to_u64(S_OK);
+                    }
+                }
             }
             bool expected = false;
             if (ChildStats<K>::beyond_warned[Slot].compare_exchange_strong(expected, true,
@@ -2241,8 +2265,20 @@ std::uint64_t WINAPI proxy_slot(DeviceProxy* self, std::uint64_t a1, std::uint64
                     thread_local D3D12_COMMAND_SIGNATURE_DESC remapped_desc;
                     remapped_desc = *d;
                     bool changed = false;
+                    // Second experiment, off by default (LEONIDA_XS_CMDSIG_MESH=1): the PC layer here builds no
+                    // DISPATCH_MESH signature (E_NOTIMPL), so the title's error path is taken again. Give it a DISPATCH one
+                    // of the same 12 bytes to see what the title does next. ExecuteIndirect on such a signature runs a
+                    // compute dispatch, which is wrong for a mesh pipeline: only to get past the creation check.
+                    static const bool mesh_stub = [] {
+                        char v[8] = {};
+                        return GetEnvironmentVariableA("LEONIDA_XS_CMDSIG_MESH", v, sizeof v) > 0 && v[0] != '0';
+                    }();
                     for (UINT i = 0; i < d->NumArgumentDescs; ++i) {
                         remapped_args[i] = d->pArgumentDescs[i];
+                        if (mesh_stub && remapped_args[i].Type == D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH) {
+                            remapped_args[i].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+                            changed = true;
+                        }
                         if (static_cast<std::uint32_t>(remapped_args[i].Type) == 105) {
                             remapped_args[i].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
                             changed = true;
