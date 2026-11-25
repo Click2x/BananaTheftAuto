@@ -77,10 +77,11 @@ from white to black.
 - `tests/test_shader_library.py` (23 tests) and `tests/test_shader_disasm.py` (31 tests) pass, `cpu_emulation_test` passes.
 
 ### Next steps
-1. ~~CLZERO emulation CPU~~ done: see "CLZERO emulation" below.
-2. Find what the roughly ten NVIDIA shader-compiler threads are compiling for minutes, and whether the title waits for it.
-3. Find what the title's render thread waits on (thread-stack dumps with `LEONIDA_STACKS`), now that it presents.
-4. Look at the refused calls listed above (slot 57 x 10,241, texture-layout calls, queue slot 31, allocator slot 9).
+1. Decode slot 57's six pointer/size pairs (local disassembly of the title's writer, as was done for slot 67) and find out
+   whether the pipeline library holds graphics programs in a form the translator can take; `docs/fspx.md` covers compute only.
+2. Graphics pipeline creation is probably what blocks every draw; scope what a minimal graphics path would need before building it.
+3. Look at the other refused calls (texture-layout calls, queue slot 31, allocator slot 9).
+4. Find what the idle workers wait for (a signal our layer should raise, or work that is never submitted).
 5. Keep this log and the README current; commit and push to this repo's `main` at each small milestone.
 
 ### CLZERO emulation: cause found and reduced
