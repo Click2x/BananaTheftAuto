@@ -2277,11 +2277,42 @@ void* WINAPI proxy_get_resource_allocation_info(std::uint64_t a0, std::uint64_t 
     return call.ret;
 }
 
+// Slot 108, measured at the retail 1.0.2.1 call sites (game_scarlett_master.exe+0xabfda9 and +0xabfe07): the C ABI of
+// slot 26, with rcx = a 16-byte return buffer, rdx = the device, r8 = 1, r9 = 1 and two pointers on the stack. The title
+// copies 16 bytes back and compares the second qword with 0x1000, which reads like {SizeInBytes, Alignment}. By shape it
+// is a GetResourceAllocationInfo variant (visible mask, count, descs, one more pointer). The generic forwarder takes the
+// return buffer for the device and crashes reading a vtable from it.
+//
+// Experiment, off by default (LEONIDA_XS_SLOT108_GRI=1): serve it as slot 25 does, ignoring the last pointer. Without the
+// variable the call still goes to the generic forwarder, as before.
+void* g_slot108_generic = nullptr;
+
+void* WINAPI proxy_slot108_experiment(std::uint64_t a0, std::uint64_t a1, std::uint64_t a2, std::uint64_t a3,
+                                      std::uint64_t a4, std::uint64_t a5) {
+    static const bool on = [] {
+        char v[8] = {};
+        return GetEnvironmentVariableA("LEONIDA_XS_SLOT108_GRI", v, sizeof v) > 0 && v[0] != '0';
+    }();
+    if (on) {
+        note_slot(108);
+        const StructReturnCall call = struct_return_call(a0, a1);
+        *static_cast<D3D12_RESOURCE_ALLOCATION_INFO*>(call.ret) = call.self->real->GetResourceAllocationInfo(
+            static_cast<UINT>(a2), static_cast<UINT>(a3), reinterpret_cast<const D3D12_RESOURCE_DESC*>(a4));
+        return call.ret;
+    }
+    using GenericFn = void*(WINAPI*)(std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t,
+                                     std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t,
+                                     std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t);
+    return reinterpret_cast<GenericFn>(g_slot108_generic)(a0, a1, a2, a3, a4, a5, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+}
+
 void** get_vtable() {
     static void** vtable = [] {
         static void* storage[kMaxSlots];
         fill_vtable(storage, std::make_index_sequence<kMaxSlots>{});
         storage[25] = reinterpret_cast<void*>(&proxy_get_resource_allocation_info);
+        g_slot108_generic = storage[108];
+        storage[108] = reinterpret_cast<void*>(&proxy_slot108_experiment);
         return storage;
     }();
     return vtable;
