@@ -265,6 +265,8 @@ expected when pictures do appear.
   its first-run screens: Legal Notices (copyright), "Finish setup?" (controls note) and a "Navigation experience" page (minimap options). All are drawn
   by the recompiled title with its own shaders, fonts and textures; two screenshots are in `docs/screenshots/`. A third (the navigation page) is kept
   local because the screenshot shows the owner's taskbar. How the input was given (pad, keyboard pad or script) has not been recorded yet; it needs to be, for the partner's guide.
+- The owner then sent a further screenshot: the Rockstar logo on a dark background (the title's logo splash, after the setup screens), also drawn by the
+  recompiled title. Kept local (it shows the owner's taskbar). So the boot path goes: sign-in screen, legal notices, finish setup, navigation options, logo.
 Next: see why the title waits on the sign-in screen (input? account?). The earlier question, why draws wrote nothing, is answered: it was loading time.
  (their pipelines' shader tier, the vertex and constant data they read).
 
