@@ -134,6 +134,18 @@ slot 57 fails, but it never gets the completions it counts, which fits the idle 
 This is the strongest explanation so far and is still a hypothesis: nothing has yet been seen waiting on that counter.
 The layer logs the first six frames of the caller on the first failure.
 
+### How upstream handles slot 57 (looked at read-only through the GitHub web API on 2026-11-25; nothing fetched or merged)
+Upstream (535 commits ahead of the one merge on 2026-11-24) already treats slot 57 as the graphics pipeline deserialiser
+and answers it with a **native graphics factory** (`d3d12_xs_native_pso.h`, with `_fallback.h`, plus a PSO-stream reader). Its
+documented layout of the description is the same one measured here: root signature, then a state blob (about 380-404 bytes), a
+pipeline blob (80-224 bytes; holds the vertex input layout), and two program/stage pairs (pixel and vertex shaders).
+Programs are looked up in a library of translated graphics programs by hash, and the state blob's colour-target, blend, depth,
+stencil and raster registers are decoded into PC pipeline state. So the open question above (are the pairs shader stages?)
+has an answer: yes. Our hypothesis that failing slot 57 starves the title of draws is consistent with their progress, since their
+boot graphs show draws once it is served. **Not brought in:** by the project's rule, upstream changes are chosen by hand; a list
+of candidates has been given to the user for a decision. (The layout facts here match, but this log only claims what was measured
+locally.)
+
 ### Things that were wrong along the way (kept for honesty)
 - First guess for the failing `Close` calls: reopen lists when their allocator is reset. It reopened nothing; removed.
 - First reading of the extra window: "not part of the run". It belongs to the game itself (the title's own window).
