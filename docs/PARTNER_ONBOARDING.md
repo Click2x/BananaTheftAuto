@@ -29,16 +29,14 @@ The older folders (`Leonida`, `Leonida Continued`, `GTA6-Leonida`, `Leonida-Work
 project from before our changes. Leave them alone, do not work in them, and delete them later only once everything runs from the new place.
 **Check the dump's version:** it must be 1.0.2.1 (the folder name says so).
 
-## Step 2. Install the tools (once)
+## Step 2. Install only Python and Git (the menu does the rest)
 1. [Python 3.12 or newer](https://www.python.org/downloads/): tick "Add python.exe to PATH". Check: `python --version`.
 2. [Git for Windows](https://git-scm.com/download/win). Check: `git --version`.
-3. Visual Studio 2022 with **Desktop development with C++** and the **Windows SDK 10.0.26100 or newer**.
-4. [Vulkan SDK](https://vulkan.lunarg.com/) (gives `spirv-as` and `spirv-val`).
-5. `llvm-mc` **with the AMDGPU target**. Your folder `clang+llvm-23.1.6-aarch64-pc-windows-...` is the ARM64 build, which is
-   the wrong kind for a normal x64 PC (and the official Windows build has no AMDGPU target anyway). Use one of the two ways in
-   the README prerequisites: build it with `scripts\build_llvm_mc.ps1` (20-40 min) or `conda install -c conda-forge llvm-tools`,
-   then set the `LLVM_MC` environment variable to the full path of `llvm-mc.exe`.
-6. A GPU with Vulkan 1.3 and current drivers. (The project is being developed on an NVIDIA RTX 3090.)
+
+Everything else (Vulkan SDK, Visual Studio C++ tools, `llvm-mc` with AMDGPU, ffmpeg) is offered by the menu in Step 5, one item or
+all at once, and nothing is installed without a yes. A Windows administrator prompt may appear for the C++ tools; the `llvm-mc`
+build takes 20-40 minutes. You do **not** need the `clang+llvm-...aarch64` folder (it is the ARM64 build, the wrong kind for an x64 PC); leave it unused.
+You need a GPU with Vulkan 1.3 and current drivers (the project is developed on an RTX 3090).
 
 ## Step 3. Get the code
 ```powershell
@@ -57,14 +55,15 @@ Work on your own branch: `git switch -c yourname/what-you-do`, then merge to `ma
 3. `docs/boot.md`, then `docs/d3d12_vulkan.md` section 4.5 (how a frame is presented).
 Keep a list of words you do not know; ask.
 
-## Step 5. Build the shader library and the runtime
-From `T:\CL GTA6\BananaTheftAuto`:
-```powershell
-python -I make_game.py --game "T:\CL GTA6\GTA6.Xbox.v1.0.2.1-MYDUMP" --work "T:\CL GTA6\work" --out "T:\CL GTA6\BTA" --stages check,shaders,runtime --jobs 8 --no-tui
-```
-- The shader step takes **about 40 minutes** and uses a lot of disk (tens of GB). That is normal.
-- Check it worked: `T:\CL GTA6\BTA\gta6rt.exe` exists, and the work folder has a `shaders` folder.
-- If the owner shares the extra graphics-shader step (it is not automatic yet), do that after.
+## Step 5. Build with the menu
+From `T:\CL GTA6\BananaTheftAuto`, double-click `Leonida.bat`.
+1. When it asks for the game, choose or paste `T:\CL GTA6\GTA6.Xbox.v1.0.2.1-MYDUMP` (the folder that holds `MicrosoftGame.Config`).
+2. At "What the build needs", say yes to each missing tool (see Step 2).
+3. Choose the output and work folders under `T:\CL GTA6` (`BTA` and `work`) rather than the default `Documents\Leonida`.
+4. Build the **shaders** and **runtime** stages. The shader step takes about 40 minutes and uses tens of GB of disk. That is normal. A stopped build continues where it left off.
+Check: `T:\CL GTA6\BTA\gta6rt.exe` exists and the work folder has a `shaders` folder.
+Prefer a terminal? The same build is `python -I make_game.py --game "<dump>" --work "T:\CL GTA6\work" --out "T:\CL GTA6\BTA" --stages check,shaders,runtime --jobs 8 --no-tui`.
+The extra graphics-shader step is not in the menu yet; the owner will say when to do it.
 
 ## Step 6. Run the title and look at the logs
 ```powershell
