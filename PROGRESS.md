@@ -233,7 +233,11 @@ expected when pictures do appear.
   presents are among them (about 530 draws each); the other two take 1,527 and 5,606 draws. So draws do reach the presented images, and
   those images still read back all zero: the draws write nothing visible (degenerate or discarded geometry, shaders that output zero,
   or empty vertex/constant data), not "the draws never reach the screen image".
-
+  The same diagnostic also counts draws with no vertices or instances, an empty viewport, or an empty scissor: in the first 2,048 draws
+  **none** of them, so the geometry call itself is well formed.
+  Still open (not yet measured): depth test results, colour write masks, blend state, shader output values, and whether the vertex and
+  constant data are filled (the log notes title memory with "no GPU copy").
+Next: find out why those draws write nothing (their pipelines' shader tier, the vertex and constant data they read).
 
 ### Things that were wrong along the way (kept for honesty)
 - First guess for the failing `Close` calls: reopen lists when their allocator is reset. It reopened nothing; removed.

@@ -5095,10 +5095,13 @@ inline void emit_commands(const PreparedList& prepared, VkCommandBuffer command_
                 }();
                 if (stats_on) {
                     static std::mutex stats_mutex;
-                    static std::uint64_t total = 0, skipped = 0, no_color = 0;
+                    static std::uint64_t total = 0, skipped = 0, no_color = 0, empty = 0, no_viewport = 0, no_scissor = 0;
                     static std::map<std::uint64_t, std::uint64_t> by_target;  // first colour ResourceId -> draws
                     std::lock_guard<std::mutex> lock(stats_mutex);
                     ++total;
+                    if (draw->count == 0 || draw->instances == 0) ++empty;
+                    if (draw->viewport.width <= 0.0f || draw->viewport.height <= 0.0f) ++no_viewport;
+                    if (draw->scissor.right <= draw->scissor.left || draw->scissor.bottom <= draw->scissor.top) ++no_scissor;
                     if (d.skipped) ++skipped;
                     else {
                         std::uint64_t first = 0;
@@ -5107,9 +5110,10 @@ inline void emit_commands(const PreparedList& prepared, VkCommandBuffer command_
                         ++by_target[first];
                     }
                     if ((total & 2047) == 0) {
-                        std::fprintf(stderr, "[rt] draw-stats: %llu draws, %llu skipped, %llu without a colour target, %zu distinct first targets:",
+                        std::fprintf(stderr, "[rt] draw-stats: %llu draws, %llu skipped, %llu without a colour target, %zu distinct first targets (%llu with no vertices or instances, %llu with an empty viewport, %llu with an empty scissor):",
                                      (unsigned long long)total, (unsigned long long)skipped, (unsigned long long)no_color,
-                                     by_target.size());
+                                     by_target.size(), (unsigned long long)empty, (unsigned long long)no_viewport,
+                                     (unsigned long long)no_scissor);
                         int shown = 0;
                         for (const auto& [id, n] : by_target) {
                             if (shown++ >= 8) break;
