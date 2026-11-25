@@ -4,10 +4,10 @@ This is a step-by-step for someone new to the project. Do the steps in order; st
 Where we are today is in **[PROGRESS.md](../PROGRESS.md)** (read its last section first).
 
 ## Where the project stands (one paragraph)
-Banana Theft Auto recompiles the Xbox build of GTA VI (1.0.2.1) to run on Windows with Vulkan. After several minutes of loading
-the title draws its sign-in screen, and with a controller it goes on through Legal Notices, Finish setup, Navigation options and
-the logo to its loading art. **At about 300 s it crashes** (Vulkan device lost, most likely a GPU hang). Finding that hang is the
-current job; see the last section of `PROGRESS.md`.
+Banana Theft Auto recompiles the Xbox build of GTA VI (1.0.2.1) to run on Windows with Vulkan. The title now loads, draws its own
+screens (sign-in, legal notices, setup, loading art), takes controller input, and then stops itself after about 4-5 minutes, while it is still
+loading. The current job is getting past that point. The **progress tracker** at the top of the [README](../README.md) is the short version;
+[PROGRESS.md](../PROGRESS.md) is the full log.
 
 ## Rules (please keep them)
 - You need your own legal copy of the game dump. **Never** put game files, shader outputs, disassembly or byte offsets into the

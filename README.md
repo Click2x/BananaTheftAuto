@@ -3,28 +3,82 @@
 # Banana Theft Auto
 
 A standalone project built on **Leonida**, the static recompilation of Grand Theft Auto VI (Xbox Series, package 1.0.2.1) for
-Windows, which is itself a continuation of an earlier project (see Credits). This repository adds a guided Windows menu that finds your
-own copy of the game, checks your PC, offers the tools the build needs (asking first) and starts the build.
+Windows and Vulkan, which is itself a continuation of an earlier project (see Credits). This repository adds a guided Windows menu
+that finds your own copy of the game, checks your PC, offers the tools the build needs (asking first) and starts the build, plus our
+own runtime and shader fixes. It does not contain, download or share any game files.
 
-> Status: **early, the game does not play yet.** On the author's PC the title now runs steadily with a window and records about 9,000 draw calls a minute (every graphics pipeline it asks for is created), and after loading (more than 100 s here) it draws its own sign-in screen (dark background, button prompts at the bottom right) with real shaders and fonts, then waits there; the day-by-day facts, measurements and mistakes are in **[PROGRESS.md](PROGRESS.md)**. New helper? Start with **[docs/PARTNER_ONBOARDING.md](docs/PARTNER_ONBOARDING.md)**. The menu makes the toolchain easier to set up and run; it does not
->
-> ![The title's own sign-in screen, drawn by the recompiled game on Windows/Vulkan (2026-11-25)](docs/screenshots/2026-11-25-sign-in-screen.png)
->
-> *First picture from the recompiled title (2026-11-25): its sign-in screen, drawn with the game's own translated shaders and fonts, captured by `LEONIDA_CAPTURE` from the presenter.*
->
-> And once the owner gave it input, it moved on through its first-run screens (all drawn by the recompiled title itself):
->
-> ![Legal notices screen](docs/screenshots/2026-11-25-legal-notices.webp) ![Finish setup screen](docs/screenshots/2026-11-25-finish-setup.webp) ![Navigation options screen](docs/screenshots/2026-11-25-navigation-options.webp)
-> change what the build produces. It does not contain, download or share any game files.
+> **Status (2026-11-25): early, the game does not play yet, but it boots to its menus.** On the author's PC (RTX 3090) the recompiled
+> title loads, draws its own screens with its real shaders, fonts and textures, takes controller input, goes through its first-run
+> setup and reaches its loading screens. It then stops itself after about 4-5 minutes (details in the tracker below).
+
+<p align="center">
+<img src="docs/screenshots/2026-11-25-sign-in-screen.png" width="49%" alt="Sign-in screen">
+<img src="docs/screenshots/2026-11-25-legal-notices.webp" width="49%" alt="Legal notices screen">
+<img src="docs/screenshots/2026-11-25-finish-setup.webp" width="49%" alt="Finish setup screen">
+<img src="docs/screenshots/2026-11-25-navigation-options.webp" width="49%" alt="Navigation options screen">
+</p>
+<p align="center"><sub>Drawn by the recompiled title itself on Windows/Vulkan (2026-11-25). Captured from the presenter or the game window.</sub></p>
+
+## Progress tracker
+
+What works, what is being worked on, and what is next. Every line is backed by a measurement written up in
+**[PROGRESS.md](PROGRESS.md)** (the day-by-day log, including the things we got wrong).
+
+### Milestones
+
+| | Milestone | State |
+|---|---|---|
+| ✅ | Game executable loads and runs its startup code | done (upstream Leonida) |
+| ✅ | Title runs steadily for minutes without crashing the host | done: CPU emulation fix for CLZERO made it usable |
+| ✅ | Every graphics pipeline the title asks for is created | done: 25,450 native pipelines, 0 failed (upstream's slot 57 path, merged at our request) |
+| ✅ | Graphics shaders translated | 11,255 of 11,339 vertex/pixel programs (99.3%), all pass `spirv-val` |
+| ✅ | **First picture**: the title's own sign-in screen | done 2026-11-25 |
+| ✅ | Controller input (SDL3 build) and the keyboard pad | done 2026-11-25 |
+| ✅ | First-run screens: legal notices, finish setup, navigation options, logo | done 2026-11-25 |
+| ✅ | Loading screens with their artwork | done 2026-11-25 (after generating the BCPack predictor file) |
+| 🔧 | Get past the loading screens | **in progress**: the title's own hang watchdog stops it at ~250-300 s |
+| ⬜ | Story mode / gameplay on screen | not started |
+| ⬜ | Playable frame rate | not started (2-8 frames a second while loading today) |
+| ⬜ | Audio checked | not started |
+
+### Working on now
+
+- **The ~4-5 minute stop.** Measured: with Windows' normal 2 s GPU timeout the GPU was reset (device lost); with a 60 s timeout it is not,
+  and the title instead stops itself through its own fatal-error path, fired by what behaves like its hang watchdog. In that run 37 compute
+  shaders were compiled the first time they were used, 187 s of compiling in all. Fix being tried: compile the compute pipelines ahead of
+  time into `pipeline_cache.bin` (the build's `pipelines` stage, compute part only).
+- **Frame rate while loading:** 2-8 frames a second; texture uploads and descriptor-heap copies take most of each submission.
+
+### Fixed along the way (newest first)
+
+| Fix | Effect |
+|---|---|
+| Translator restores a bit llvm-mc drops from `v_interp_p2_f16` | 151 more pixel shaders translate (11,104 to 11,255) |
+| BCPack predictor file generated (`tools/build_dstorage_history.py`) | DirectStorage decompression failures 189 to 5; loading art appears |
+| Runtime built with SDL3 (`build_runtime.ps1 -FetchSdl3`) | the controller works |
+| Found that the "black screen" was only loading time | first picture after ~100+ s of loading |
+| Graphics shader library built and retranslated | native pipelines 1,326 to 25,450 created, failures 12,062 to 0 |
+| CLZERO emulation caches the writable range | one thread no longer burns a whole CPU core |
+
+### Next up
+
+1. Confirm the ahead-of-time compute compile gets past the loading screens.
+2. Make the menu's build do what was done by hand here: the graphics shader library, SDL3 and the BCPack predictor file.
+3. The last 84 untranslated graphics programs (78 need a hardware measurement first, 6 have no shader container).
+4. Frame rate.
+
+## For helpers
+
+New here? Start with **[docs/PARTNER_ONBOARDING.md](docs/PARTNER_ONBOARDING.md)**, a step-by-step for a new developer.
+Rules that keep the project clean: nothing from the game (files, shader output, byte offsets, disassembly) goes into this
+repository; our own work goes to this repository only; nothing from upstream Leonida is merged automatically.
 
 ## What this repository adds
 
 - `Leonida.bat` and `leonida_menu.py`: the guided menu. Details, screenshots and status: **[README_MENU.md](README_MENU.md)**.
-- `docs/banana/` and `docs/menu/`: the artwork and screenshots.
-
-- `tools/shader_disasm.py`: one small fix to an upstream file (16 bytes per line into `llvm-mc`, which avoids hundreds of MB of repeated warnings per shader), with a test. Explained in [README_MENU.md](README_MENU.md#faster-shader-step); it is not in upstream yet.
-
-Runtime and shader work since the fork (off-by-default experiments, a CLZERO emulation speed-up, a Python decoder fallback that takes the translated shader library from 1,685 to 2,615 programs) is logged in [PROGRESS.md](PROGRESS.md). Everything else is Leonida, with its full history.
+- `docs/banana/` and `docs/menu/`: the artwork, the watermark and the menu screenshots; `docs/screenshots/`: pictures from the game.
+- Runtime and translator fixes and off-by-default diagnostics (`LEONIDA_DRAW_STATS`, `LEONIDA_CLEAR_TINT`, `LEONIDA_FORCE_FIXED`),
+  all logged in [PROGRESS.md](PROGRESS.md). Everything else is Leonida, with its full history.
 
 ## Quick start
 
