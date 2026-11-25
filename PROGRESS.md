@@ -252,7 +252,17 @@ expected when pictures do appear.
   - The split of `m` (write mask) from `b` (blending) was built and run but its lines were not captured (the diagnostics variable was missing in that
     shell), so which of the two it is is **not yet known**.
   - `LEONIDA_FSDRAW_POKE_CB=1` printed no POKE line, so that test did not run; it is inconclusive.
-Next: find out why those draws write nothing (their pipelines' shader tier, the vertex and constant data they read).
+- **Correction, 2026-11-25 evening: it is not black after all; the earlier runs were simply too short.** A 10-minute run with the window
+  restored and `LEONIDA_CAPTURE_EVERY=300` shows frames 1, 301 and 601 all zero, and **from frame 901 on a non-black picture**: a dark
+  blue-grey screen with three button prompts at the bottom right ("Account picker", "Screen narration (off)", "Player"), identical in
+  every later captured frame up to 8,401 (mean colour about 33, 33, 45). That is the title's own sign-in / profile screen, drawn with
+  its real shaders and fonts, so draws, translated shaders, text and the presenter work end to end. My 100 s runs (541 frames) stopped just before the
+  first drawn frame, and the "blob A blend keeps draws off the image" reading above was wrong in its conclusion: while the title was
+  still loading it was drawing fades and blits of black. (The tint and force-state results themselves are real measurements.)
+  The picture is static: it does not advance, so the title now waits on that screen (an account choice or an input), which is the next thing to look into.
+  Screenshots of the game are kept local and are not in this repository.
+Next: see why the title waits on the sign-in screen (input? account?). The earlier question, why draws wrote nothing, is answered: it was loading time.
+ (their pipelines' shader tier, the vertex and constant data they read).
 
 ### Things that were wrong along the way (kept for honesty)
 - First guess for the failing `Close` calls: reopen lists when their allocator is reset. It reopened nothing; removed.
