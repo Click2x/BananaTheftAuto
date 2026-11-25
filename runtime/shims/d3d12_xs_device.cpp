@@ -2198,6 +2198,29 @@ std::uint64_t WINAPI proxy_slot(DeviceProxy* self, std::uint64_t a1, std::uint64
                              readable(a3), static_cast<unsigned long long>(a4), readable(a4),
                              static_cast<unsigned long long>(a5), readable(a5), static_cast<unsigned long long>(a6),
                              readable(a6));
+                // Slot 61 only, measured: the title calls it as (descriptor*, output*) with a descriptor of about 0x54
+                // bytes it builds on its stack. Print those bytes so the layout can be read off.
+                if constexpr (Slot == 61) {
+                    if (readable(a1) == 'R') {
+                        const auto* w = reinterpret_cast<const std::uint32_t*>(a1);
+                        std::fprintf(stderr, "[rt] d3d12_xs: slot 61 descriptor words:");
+                        for (int i = 0; i < 22; ++i) std::fprintf(stderr, " %08x", w[i]);
+                        std::fprintf(stderr, "\n");
+                    }
+                }
+            }
+        }
+        // Experiment, off by default (LEONIDA_XS_SLOT61_STUB=1): answer slot 61 with 16 zero bytes in the output and
+        // S_OK instead of forwarding it to the PC CreateMetaCommand, which crashes on it. Only to see what the title
+        // does next; the zero words are not a real descriptor.
+        if constexpr (Slot == 61) {
+            static const bool stub = [] {
+                char v[8] = {};
+                return GetEnvironmentVariableA("LEONIDA_XS_SLOT61_STUB", v, sizeof v) > 0 && v[0] != '0';
+            }();
+            if (stub && a2 >= 0x10000) {
+                std::memset(reinterpret_cast<void*>(a2), 0, 16);
+                return hr_to_u64(S_OK);
             }
         }
         auto fn = reinterpret_cast<ForwardFn>(self->real_vtable[Slot]);
