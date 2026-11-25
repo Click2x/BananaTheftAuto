@@ -18,8 +18,13 @@ inline bool enabled() noexcept {
     return tracing.load(std::memory_order_relaxed);
 }
 
+// The method most recently recorded on this thread, kept even when tracing is off, so a diagnostic can name the call
+// that was being made (a command list's check() uses it to say which call made the list invalid).
+inline thread_local const char* last_method = nullptr;
+
 // Callers supply fixed method names and outcomes only. Keep one ordered record per call across threads.
 inline void record(const char* method, const char* outcome = "called") noexcept {
+    last_method = method;
     if (!enabled()) return;
     static std::mutex mutex;
     static unsigned long long sequence = 0;

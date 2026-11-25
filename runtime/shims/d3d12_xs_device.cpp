@@ -28,6 +28,7 @@
 #include "../src/shader_library.h"  // leonida::fspx_payload_from_parts for slot 67
 
 #include <windows.h>
+#include <intrin.h>
 #include <dxgi1_4.h>
 
 #include <atomic>
@@ -1104,6 +1105,26 @@ std::uint64_t WINAPI list_slot(ListProxy* self, std::uint64_t a1, std::uint64_t 
                                                reinterpret_cast<void**>(a2)));
     } else {
         note_list_slot(Slot, a1, a2, a3, a4);
+        // Experiment, off by default (LEONIDA_XS_LIST139_RESET=1): the title calls console list slot 139 on each list it
+        // takes from its pool before recording, with (allocator, NULL, 0). Another project's notes on the same newer
+        // layout say that slot is Reset with one more argument; here it was a stub answering 0, so the list stayed
+        // closed, everything recorded on it was dropped and the title's later Close answered E_FAIL. Serve it as the
+        // PC Reset(allocator, initial state), the allocator proxy unwrapped as for slot 10.
+        if constexpr (Slot == 139) {
+            static const bool reset139 = [] {
+                char v[8] = {};
+                return GetEnvironmentVariableA("LEONIDA_XS_LIST139_RESET", v, sizeof v) > 0 && v[0] != '0';
+            }();
+            if (reset139) {
+                static std::atomic<bool> told{false};
+                if (!told.exchange(true, std::memory_order_relaxed))
+                    std::fprintf(stderr, "[rt] d3d12_xs: list slot 139 served as Reset(allocator, state) (experiment)\n");
+                self->pin_cursor_at_limit();
+                using ResetFn = std::uint64_t(WINAPI*)(void*, std::uint64_t, std::uint64_t);
+                auto** const real_vtable = *reinterpret_cast<void***>(self->real);
+                return reinterpret_cast<ResetFn>(real_vtable[10])(self->real, unwrap_object(a1), a2);
+            }
+        }
         constexpr unsigned pc = console_to_pc_list_slot(Slot);
         if constexpr (pc == kListNotForwarded) {
             if constexpr (Slot == 148) {
@@ -1140,6 +1161,40 @@ std::uint64_t WINAPI list_slot(ListProxy* self, std::uint64_t a1, std::uint64_t 
             } else if constexpr (Slot == kConsoleSetDescriptorHeaps) {
                 if (!heaps.fill(a2, a1)) return 0;
                 if (heaps.data()) a2 = heaps.data();
+            }
+            if constexpr (pc == 9) {
+                // Diagnostic: Close on a list that is already closed answers E_FAIL. Say which title call sites make
+                // those calls (module offset of the return address), on the 1st, 10th, 100th ... failure of each site,
+                // for up to sixteen sites, so a title that closes twice, or closes after submitting, can be told
+                // apart from one that closes a list another path closed.
+                const std::uint64_t site = reinterpret_cast<std::uint64_t>(_ReturnAddress());
+                const std::uint64_t result = reinterpret_cast<ForwardFn>(real_vtable[pc])(
+                    self->real, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14);
+                if (static_cast<std::uint32_t>(result) & 0x80000000u) {
+                    struct Site {
+                        std::atomic<std::uint64_t> address{0};
+                        std::atomic<std::uint64_t> failures{0};
+                    };
+                    static Site sites[16];
+                    for (Site& s : sites) {
+                        std::uint64_t expected = 0;
+                        if (s.address.load(std::memory_order_relaxed) != site &&
+                            !s.address.compare_exchange_strong(expected, site, std::memory_order_relaxed) &&
+                            expected != site)
+                            continue;
+                        const std::uint64_t n = s.failures.fetch_add(1, std::memory_order_relaxed) + 1;
+                        if (n == 1 || n == 10 || n == 100 || n == 1000) {
+                            HMODULE exe = GetModuleHandleW(L"game_scarlett_master.exe");
+                            std::fprintf(stderr,
+                                         "[rt] d3d12_xs: list Close failed (0x%08x) from game_scarlett_master.exe+0x%llx, failure %llu at this site\n",
+                                         static_cast<unsigned>(static_cast<std::uint32_t>(result)),
+                                         static_cast<unsigned long long>(site - reinterpret_cast<std::uint64_t>(exe)),
+                                         static_cast<unsigned long long>(n));
+                        }
+                        break;
+                    }
+                }
+                return result;
             }
             return reinterpret_cast<ForwardFn>(real_vtable[pc])(self->real, a1, a2, a3, a4, a5, a6, a7, a8, a9,
                                                               a10, a11, a12, a13, a14);

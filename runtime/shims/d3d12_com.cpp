@@ -217,8 +217,18 @@ public:
     HRESULT STDMETHODCALLTYPE Close() override {
         constexpr auto method = "ID3D12GraphicsCommandList::Close";
         if (list_.queries_open()) invalid_ = true;
-        if (!list_.close()) return d3d12_trace::result(method, E_FAIL);
+        if (!list_.close()) {
+            static std::atomic<bool> told{false};
+            if (!told.exchange(true))
+                std::fprintf(stderr, "[rt] d3d12: a command list's Close answered E_FAIL: the list was not open (already closed, or never reset)\n");
+            return d3d12_trace::result(method, E_FAIL);
+        }
         stop_recording();
+        if (invalid_) {
+            static std::atomic<bool> told{false};
+            if (!told.exchange(true))
+                std::fprintf(stderr, "[rt] d3d12: a command list's Close answered E_INVALIDARG: a call recorded on it was invalid\n");
+        }
         return d3d12_trace::result(method, invalid_ ? E_INVALIDARG : S_OK);
     }
 
@@ -1042,7 +1052,17 @@ private:
     }
 
     void check(bool ok) {
-        if (!ok) invalid_ = true;
+        if (!ok) {
+            // Diagnostic: the first invalid call on a recording says which method it was (the last one traced on this
+            // thread), up to twelve times in a process; the list's Close then answers E_INVALIDARG.
+            if (!invalid_) {
+                static std::atomic<unsigned> reported{0};
+                if (reported.fetch_add(1, std::memory_order_relaxed) < 12)
+                    std::fprintf(stderr, "[rt] d3d12: a command list call was invalid; the last method traced on this thread was %s\n",
+                                 d3d12_trace::last_method ? d3d12_trace::last_method : "(none)");
+            }
+            invalid_ = true;
+        }
     }
 
     void stop_recording() {
