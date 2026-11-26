@@ -299,6 +299,12 @@ expected when pictures do appear.
   difference) and writes the high half (`write_half16`). All 151 now translate and pass `spirv-val`; they are merged into the local library
   (11,255 of 11,339 graphics programs; the remaining 84 are 78 "DPP on v_cmpx" and 6 without a shader container). New test:
   `tests/test_interp_p2_f16_dst_hi.py` (synthetic encodings). Not yet checked on the GPU against hardware results.
+- **Build: the graphics pipeline library is now a step of the shaders stage** (`graphics_library_shaders` in `make_game.py`): `shader_library.py`
+  with `--stages vs,ps --disasm --carve`, then the usual sharded translation into `<work>\shaders\spirvspx_gfx`, rebuilt when shaders.rpf,
+  the tools, llvm-mc or the translator change. So a menu build no longer needs the manual commands above. Stage tests updated and passing
+  (bvh, exe, fspx, library, argparse, dry run, empty translation, resume, translator flags). Not yet run end to end (about 50 minutes).
+- **Correction:** the menu already asks for SDL3 (controller support) and the runtime stage already builds the BCPack predictor file; both
+  were missing here only because this runtime was built by hand. The onboarding guide said otherwise and is fixed.
 Next: see why the title waits on the sign-in screen (input? account?). The earlier question, why draws wrote nothing, is answered: it was loading time.
  (their pipelines' shader tier, the vertex and constant data they read).
 

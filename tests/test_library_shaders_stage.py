@@ -424,6 +424,10 @@ class ShadersStageWithLibrary(unittest.TestCase):
                                                        "fspx_state_sha256": "s" * 64}}),
                           spirv, "index.json")
                     write("spv", spirv, "lib_cs_00007.spv")
+                elif os.path.basename(spirv) == "fspx_gfx":
+                    write(json.dumps({"lib_ps_00001": {"stage": "ps", "fspx_code_sha256": "d" * 64}}),
+                          spirv, "index.json")
+                    write("spv", spirv, "lib_ps_00001.spv")
                 else:
                     write('{"shader": {"stage": "cs"}}', spirv, "index.json")
 
@@ -439,14 +443,16 @@ class ShadersStageWithLibrary(unittest.TestCase):
                 return list(ran)
 
             self.assertEqual(stage(), ["shader_carve.py", "fssm_unpack.py", "shader_disasm.py", "translate",
-                                       "shader_library.py", "translate"])
+                                       "shader_library.py", "translate", "shader_library.py", "translate"])
             self.assertEqual(translate_jobs, [(os.path.join(work, "shaders", "spirv"), 2),
-                                              (os.path.join(work, "shaders", "spirv", "library"), 2)])
+                                              (os.path.join(work, "shaders", "spirv", "library"), 2),
+                                              (os.path.join(work, "shaders", "spirv", "fspx_gfx"), 2)])
             self.assertEqual(stage(), [])
             with open(archive_path, "wb") as f:
                 f.write(b"archive v2")
-            self.assertEqual(stage(), ["shader_library.py", "translate"])
-            self.assertEqual(translate_jobs, [(os.path.join(work, "shaders", "spirv", "library"), 2)])
+            # The archive feeds both the compute and the graphics programs of the library (graphics_library_shaders).
+            self.assertEqual(stage(), ["shader_library.py", "translate", "shader_library.py", "translate"])
+            self.assertEqual(translate_jobs, [(os.path.join(work, "shaders", "spirv", "library"), 2), (os.path.join(work, "shaders", "spirv", "fspx_gfx"), 2)])
             self.assertEqual(stage(), [])
             self.assertTrue(os.path.isfile(os.path.join(work, "shaders", "spirv", "index.json")))
             self.assertTrue(os.path.isfile(os.path.join(work, "shaders", "spirv", "library", "index.json")))

@@ -1347,6 +1347,7 @@ def shaders(game: str, work: str, jobs: int, emulate: bool = False, keep_emulate
     fspx_shaders(game, work, signature, emulate=emulate, fallbacks=fallbacks)
     bvh_shaders(game, work, signature, jobs, emulate=emulate, fallbacks=fallbacks)
     library_shaders(game, work, signature, jobs, emulate=emulate, fallbacks=fallbacks)
+    graphics_library_shaders(game, work, signature, jobs, emulate=emulate, fallbacks=fallbacks)
     exe_shaders(game, work, signature, jobs, emulate=emulate, fallbacks=fallbacks)
     log("shaders: done")
 
@@ -1515,6 +1516,57 @@ def library_shaders(game: str, work: str, mc_signature: str, jobs: int, emulate:
     verify_fspx_key_clash(spirv, translated, "pipeline library")
     with open(settings_file, "w", encoding="utf-8", newline="\n") as f:
         f.write(settings + "\n")
+
+
+def graphics_library_shaders(game: str, work: str, mc_signature: str, jobs: int, emulate: bool = False,
+                             fallbacks: tuple[str, ...] = ()) -> None:
+    """The vertex and pixel programs of the pipeline library in shaders.rpf (Banana Theft Auto addition). The title
+    creates its graphics pipelines with Xbox device slot 57 (DeserializeGraphicsPipelineStateX), and the runtime's
+    native factory looks each program up by sha256 in <work>/shaders/spirv/fspx_gfx/index.json. Without this step
+    that folder is empty and nearly every graphics pipeline fails (PROGRESS.md, 2026-11-25). The same tools as
+    library_shaders: tools/shader_library.py with --stages vs,ps into <work>/shaders/gfxlib, then translate() into
+    fspx_gfx. --carve is required: the translator reads each program's signatures from its source container. Reuse
+    requires the translation index, every module it names and a matching gfx_library_build.json."""
+    archive = os.path.join(game, LIBRARY_ARCHIVE)
+    unpacked = os.path.join(work, "shaders", "gfxlib")
+    spirv = os.path.join(work, "shaders", "spirv", "fspx_gfx")
+    translated = os.path.join(spirv, "index.json")
+    shard_plan = os.path.join(spirv, SHARD_PLAN)
+    settings_file = os.path.join(spirv, "gfx_library_build.json")
+    carve = os.path.join(work, "shaders", "dxbc")
+    if not os.path.isfile(archive) or not os.path.isdir(carve):
+        log(f"shaders: no {LIBRARY_ARCHIVE} or no carved containers, so no graphics pipeline library to translate")
+        return
+    settings = library_settings(archive, mc_signature, emulate, fallbacks)
+    if read_shader_setting(settings_file) == settings and graphics_cache_complete(spirv):
+        return
+    log(f"shaders: unpacking and translating the graphics programs (vs, ps) of the pipeline library in {LIBRARY_ARCHIVE}")
+    drop(translated, settings_file, shard_plan)
+    for folder, suffixes in ((unpacked, (".dxbc",)),
+                             (os.path.join(unpacked, "fspx"), (".code", ".state", ".json")),
+                             (os.path.join(unpacked, "disasm"), (".s",)),
+                             (spirv, (".spv", ".spvasm"))):
+        if os.path.isdir(folder):
+            with os.scandir(folder) as entries:
+                for entry in entries:
+                    if entry.name.endswith(suffixes) and entry.is_file(follow_symlinks=False):
+                        os.unlink(entry.path)
+    py("shader_library.py", archive, "--out", unpacked, "--stages", "vs,ps", "--disasm", "--jobs", str(jobs),
+       "--carve", carve)
+    translate(os.path.join(unpacked, "disasm"), spirv, jobs, emulate=emulate, fallbacks=fallbacks)
+    verify_fspx_key_clash(spirv, translated, "graphics pipeline library")
+    with open(settings_file, "w", encoding="utf-8", newline="\n") as f:
+        f.write(settings + "\n")
+
+
+def graphics_cache_complete(spirv: str) -> bool:
+    """A non-empty translation index whose every module is on disk."""
+    try:
+        index = json.loads(read_shader_setting(os.path.join(spirv, "index.json")))
+    except ValueError:
+        return False
+    return isinstance(index, dict) and bool(index) and all(
+        os.path.isfile(os.path.join(spirv, name + ".spv")) for name in index)
 
 
 def verify_fspx_key_clash(spirv: str, translated: str, label: str) -> None:
