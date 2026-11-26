@@ -305,6 +305,11 @@ expected when pictures do appear.
   (bvh, exe, fspx, library, argparse, dry run, empty translation, resume, translator flags). Not yet run end to end (about 50 minutes).
 - **Correction:** the menu already asks for SDL3 (controller support) and the runtime stage already builds the BCPack predictor file; both
   were missing here only because this runtime was built by hand. The onboarding guide said otherwise and is fixed.
+- **Banana window and fps counter.** With the presenter on, the title's window now has a banana-yellow border and caption (Windows 11 DWM
+  colours) and the caption reads "🍌 Banana Theft Auto 🍌  N fps", refreshed twice a second from the frames actually presented
+  (`start_banana_frame` in `runtime/shims/d3d12_xs.cpp`; `LEONIDA_BANANA_FRAME=0` turns it off). Seen working: 7.5-8.5 fps on the setup screens
+  while the compute pre-compile was running in the background. The title's window class is ANSI, so the caption is stored with
+  `DefWindowProcW`, or the bananas would show as "??".
 Next: see why the title waits on the sign-in screen (input? account?). The earlier question, why draws wrote nothing, is answered: it was loading time.
  (their pipelines' shader tier, the vertex and constant data they read).
 

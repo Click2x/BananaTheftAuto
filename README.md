@@ -35,6 +35,7 @@ What works, what is being worked on, and what is next. Every line is backed by a
 | ✅ | **First picture**: the title's own sign-in screen | done 2026-11-25 |
 | ✅ | Controller input (SDL3 build) and the keyboard pad | done 2026-11-25 |
 | ✅ | First-run screens: legal notices, finish setup, navigation options, logo | done 2026-11-25 |
+| ✅ | Banana-yellow window with a live fps counter in the caption | done 2026-11-25 |
 | ✅ | Loading screens with their artwork | done 2026-11-25 (after generating the BCPack predictor file) |
 | 🔧 | Get past the loading screens | **in progress**: the title's own hang watchdog stops it at ~250-300 s |
 | ⬜ | Story mode / gameplay on screen | not started |

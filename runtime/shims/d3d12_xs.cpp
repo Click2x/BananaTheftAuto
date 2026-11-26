@@ -11,6 +11,8 @@
 #include <d3d12.h>
 
 #include <atomic>
+#include <chrono>
+#include <cwchar>
 #include <cstdint>
 #include <memory>
 #include <thread>
@@ -127,6 +129,44 @@ HRESULT WINAPI create_root_signature_deserializer(const void* data, SIZE_T size,
 }
 
 #ifdef LEONIDA_VULKAN_DEVICE
+// Banana Theft Auto window dressing, on by default with the presenter (LEONIDA_BANANA_FRAME=0 turns it off): the
+// window's border and caption are painted banana yellow (DWM attributes, Windows 11; older Windows ignores them),
+// and the caption shows bananas, the project's name and a frame counter: PresentX calls that were shown, per second,
+// refreshed twice a second. dwmapi.dll is loaded at run time so the build needs no new library.
+static void start_banana_frame(HWND window, rt::d3d12::XboxPresentation* xbox) {
+    char flag[8] = {};
+    if (GetEnvironmentVariableA("LEONIDA_BANANA_FRAME", flag, sizeof flag) > 0 && flag[0] == '0') return;
+    std::thread([window, xbox] {
+        using SetAttribute = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
+        static HMODULE dwm = LoadLibraryExA("dwmapi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        const auto set = dwm ? reinterpret_cast<SetAttribute>(GetProcAddress(dwm, "DwmSetWindowAttribute")) : nullptr;
+        if (set) {
+            const COLORREF border = RGB(0xFF, 0xD6, 0x00), caption = RGB(0xFF, 0xE1, 0x4D), text = RGB(0x3B, 0x22, 0x00);
+            set(window, 34 /* DWMWA_BORDER_COLOR */, &border, sizeof border);
+            set(window, 35 /* DWMWA_CAPTION_COLOR */, &caption, sizeof caption);
+            set(window, 36 /* DWMWA_TEXT_COLOR */, &text, sizeof text);
+        }
+        std::uint64_t last = xbox->presents();
+        auto then = std::chrono::steady_clock::now();
+        while (IsWindow(window)) {
+            Sleep(500);
+            const std::uint64_t now_presents = xbox->presents();
+            const auto now = std::chrono::steady_clock::now();
+            const double seconds = std::chrono::duration<double>(now - then).count();
+            const double fps = seconds > 0 ? double(now_presents - last) / seconds : 0.0;
+            last = now_presents;
+            then = now;
+            wchar_t title[128];
+            std::swprintf(title, std::size(title), L"\U0001F34C Banana Theft Auto \U0001F34C   %.1f fps", fps);
+            // The title's window class is ANSI, so SetWindowTextW would pass through its window procedure as ANSI and the
+            // bananas would become "??". DefWindowProcW stores the caption as Unicode without going through it.
+            DefWindowProcW(window, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(title));
+            RedrawWindow(window, nullptr, nullptr, RDW_FRAME | RDW_INVALIDATE);
+        }
+    }).detach();
+    std::fprintf(stderr, "[rt] present: banana frame and fps counter on the window (LEONIDA_BANANA_FRAME=0 turns it off)\n");
+}
+
 // Experiment, off by default (LEONIDA_XS_WINDOW=1): the title presents with PresentX, a queue method, and nothing in
 // --run created a window or attached a presenter, so every call was answered E_NOTIMPL and no picture could appear.
 // Open a window on a thread of its own (a window needs the message loop of the thread that made it), build the
@@ -185,6 +225,7 @@ static void open_window_and_attach_presentation(ID3D12Device* vulkan, IUnknown* 
             }
             auto* xbox = new rt::d3d12::XboxPresentation(std::move(presenter));
             const bool attached = rt::d3d12::attach_xbox_presentation(attach_to, xbox);
+            if (attached) start_banana_frame(target, xbox);
             std::fprintf(stderr, "[rt] present: presenter %s on the title's own window %p (experiment)\n",
                          attached ? "attached" : "created but not attached", static_cast<void*>(target));
             vulkan->Release();
@@ -228,6 +269,7 @@ static void open_window_and_attach_presentation(ID3D12Device* vulkan, IUnknown* 
     }
     auto* xbox = new rt::d3d12::XboxPresentation(std::move(presenter));
     const bool attached = rt::d3d12::attach_xbox_presentation(proxy, xbox);
+    if (attached) start_banana_frame(state->hwnd, xbox);
     std::fprintf(stderr, "[rt] present: window and presenter %s (experiment; PresentX slot %s)\n",
                  attached ? "attached" : "created but not attached",
                  slot[0] ? slot : "32");
