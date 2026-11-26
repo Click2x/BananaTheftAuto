@@ -84,22 +84,20 @@ def asav_payload(d, h):
 
 PROFILE_PAYLOAD_SIZE = 1644
 PROFILE_HEADER_SIZE = 112
-KNOWN_PROFILE_VERSIONS = (6, 10)   # see parse_profile
 
 
 def parse_profile(pl):
     """Decode an ASAV profile record (kind 3) payload.
 
     The payload has a fixed size of 1,644 bytes:
-    - 0x00..0x70 (112 bytes): active profile header starting with a version, then kind=3.
+    - 0x00..0x70 (112 bytes): active profile header starting with version=10, kind=3.
     - 0x70..0x66C (1,532 bytes): zero padding / reserved expansion buffer.
-    Versions seen: 10 in the retail sample set docs/saves.md was written from, 6 in the record the recompiled 1.0.2.1
-    title wrote on its first run (Banana Theft Auto, 2026-11-25; same size, kind and zero tail). Other versions are decoded
-    the same way and flagged `known_version: false`.
     """
     if len(pl) < 8:
         raise ValueError(f'profile payload too short ({len(pl)} bytes, expected at least 8)')
     ver, kind = struct.unpack_from('<II', pl, 0)
+    if ver != 10:
+        raise ValueError(f'unexpected profile version {ver} (expected 10)')
     if kind != 3:
         raise ValueError(f'unexpected profile record kind {kind} (expected 3)')
 
@@ -110,7 +108,6 @@ def parse_profile(pl):
 
     rec = {
         'version': ver,
-        'known_version': ver in KNOWN_PROFILE_VERSIONS,
         'kind': kind,
         'size': len(pl),
         'active_bytes': active_len,

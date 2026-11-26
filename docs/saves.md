@@ -86,7 +86,7 @@ The checksum at 0x160 matched none of these:
 It's left as **open**. Copy the header verbatim whenever the payload is unchanged.
 
 Payloads: settings (kind 2) are hash-keyed JSON text with tabs and CRLF **(confirmed)**. The profile record (kind 3)
-is 1,644 bytes (first 112 bytes non-zero, starting `u32 10, u32 3`, followed by 1,532 bytes of zero padding) **(confirmed)**. The record the recompiled 1.0.2.1 title wrote on its first run (Banana Theft Auto, 2026-11-25) has the same size, kind and zero tail but starts `u32 6`, so that first word is a version or counter that differs between save sets; `tools/saves.py` decodes both and flags any other value.
+is 1,644 bytes (first 112 bytes non-zero, starting `u32 10, u32 3`, followed by 1,532 bytes of zero padding) **(confirmed)**.
 
 ## Profile record (kind 3, confirmed)
 
@@ -136,7 +136,7 @@ without it only the plain payload is imported.
 Checked earlier with the shim of the open #279, which used the same layout: four imported blobs (2 KB to 1.2 MB)
 read back byte-identical through its `XGameSaveReadBlobData`.
 
-**Measured (Banana Theft Auto, 2026-11-25):** on its first run the recompiled title creates the containers `SettingsProfileSettings` (display name "Profile Settings", the settings ASAV, kind 2) and `Player` (display name "Player", the profile record ASAV, kind 3), each with two blobs, `Save Game Header` (296 bytes) and `Save Game Data` (the ASAV); the ASAV header version there is 2. Story-save names are not measured yet; `LEONIDA_SAVE_TRACE=1` logs every call. Previously: **VERIFY:** the title's real container and blob names. The default is container = slot name and blob = payload file
+**VERIFY:** the title's real container and blob names. The default is container = slot name and blob = payload file
 name, and `--map` overrides it. Confirm or fix them from the executable's `XGameSaveCreateContainer` and
 `XGameSaveSubmitBlobWrite` calls.
 
