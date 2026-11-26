@@ -26,7 +26,7 @@ from collections import defaultdict
 
 BEGIN = re.compile(r"pso-driver begin id=(\d+) unix_ms=(\d+) stage=(\S+) origin=(\S+) program=(\S+) ps=(\S+)")
 END = re.compile(r"pso-driver end id=(\d+) unix_ms=(\d+) us=(-?\d+) cpu_us=(-?\d+) result=(-?\d+)")
-STALLING = ("dispatch", "draw", "replay", "execute")
+STALLING = ("dispatch", "draw", "replay", "execute", "lazy")  # lazy: a graphics pipeline built at its first draw
 
 
 def parse(lines):
