@@ -310,6 +310,18 @@ expected when pictures do appear.
   (`start_banana_frame` in `runtime/shims/d3d12_xs.cpp`; `LEONIDA_BANANA_FRAME=0` turns it off). Seen working: 7.5-8.5 fps on the setup screens
   while the compute pre-compile was running in the background. The title's window class is ANSI, so the caption is stored with
   `DefWindowProcW`, or the bananas would show as "??".
+- **Saves: what the recompiled title actually wrote (2026-11-25).** Going through the first-run screens, the title saved through the offline
+  XGameSave shim (`runtime/shims/xgameruntime_gamesave.cpp`) into `%LOCALAPPDATA%\Leonida\saves\local-user`: two containers, each with two blobs,
+  `Save Game Header` (296 bytes) and `Save Game Data`:
+  - container `SettingsProfileSettings` (display name "Profile Settings"): `Save Game Data` is an ASAV, version 2, kind 2 (settings), 7,344 bytes;
+  - container `Player` (display name "Player"): `Save Game Data` is an ASAV, version 2, kind 3 (profile record), 2,012 bytes, written about 19 s later.
+  This answers `docs/saves.md`'s open question about the real container and blob names (it guessed slot name / payload file name). Two differences
+  from the samples that document was written from: ASAV version 2 here, and `tools/saves.py` cannot decode the profile record ("unexpected profile
+  version 6 (expected 10)"). The saves themselves stay local (player data).
+- **New tracing for both maps:** `LEONIDA_SAVE_TRACE=1` logs every XGameSave call (provider, container, update, each blob write with its size and
+  4-byte magic, reads, deletes, submits) with its time; `LEONIDA_PSO_PROFILE=1` (already in the runtime) logs every pipeline build, and the new
+  `tools/pso_timeline.py` turns that into a per-phase table and preload lists (`preload_<phase>.txt`). A combined run is next, once the compute
+  pre-compile finishes.
 Next: see why the title waits on the sign-in screen (input? account?). The earlier question, why draws wrote nothing, is answered: it was loading time.
  (their pipelines' shader tier, the vertex and constant data they read).
 
