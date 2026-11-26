@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300" viewBox="0 0 600 300" role="img" aria-label="Frame rate goal: about 8.5 of 30 fps measured on the menus, 28 percent">
+  <defs>
+    <linearGradient id="f-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b0638"/><stop offset="1" stop-color="#3a0f5e"/>
+    </linearGradient>
+    <linearGradient id="f-fill" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff4fa3"/><stop offset=".6" stop-color="#ff9a52"/><stop offset="1" stop-color="#ffe14d"/>
+    </linearGradient>
+  </defs>
+  <rect width="600" height="300" rx="18" fill="url(#f-bg)"/>
+  <text x="300" y="40" text-anchor="middle" font-family="Arial Black, Impact, Segoe UI, sans-serif" font-weight="900" font-size="22" letter-spacing="3" fill="#ffe14d">ROAD TO 30 FPS</text>
+  <text x="300" y="62" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#d9c6f0">best measured so far, on the menus (RTX 3090)</text>
+  <!-- bar -->
+  <rect x="50" y="110" width="500" height="44" rx="22" fill="#2a0a47" stroke="#8d6bb8" stroke-width="3"/>
+  <rect x="53" y="113" width="139" height="38" rx="19" fill="url(#f-fill)"/>
+  <!-- banana riding the bar -->
+  <g transform="translate(176,84) rotate(-20) scale(.8)">
+    <path d="M8,40 C10,16 34,2 58,10 C60,11 60,14 58,15 C40,18 28,32 22,50 C20,55 9,54 8,40 Z" fill="#ffe14d" stroke="#a87800" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M58,10 L62,7" stroke="#6b4a00" stroke-width="5" stroke-linecap="round"/>
+  </g>
+  <g font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#bba6d9" text-anchor="middle">
+    <text x="50" y="178">0</text><text x="175" y="178">7.5</text><text x="300" y="178">15</text><text x="425" y="178">22.5</text><text x="550" y="178">30</text>
+  </g>
+  <g stroke="#8d6bb8" stroke-width="2"><path d="M175,154 v6"/><path d="M300,154 v6"/><path d="M425,154 v6"/></g>
+  <text x="300" y="228" text-anchor="middle" font-family="Arial Black, Impact, Segoe UI, sans-serif" font-weight="900" font-size="38" fill="#ff9ccf">28%</text>
+  <text x="300" y="256" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#fff6d6">8.5 of 30 fps on the setup screens  •  2-8 fps while loading</text>
+  <text x="300" y="278" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#d9c6f0">gameplay frame rate not measured yet (the title does not reach gameplay)</text>
+</svg>

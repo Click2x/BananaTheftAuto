@@ -12,6 +12,11 @@ own runtime and shader fixes. It does not contain, download or share any game fi
 > setup and reaches its loading screens. It then stops itself after about 4-5 minutes (details in the tracker below).
 
 <p align="center">
+<img src="docs/banana/journey.svg" width="49%" alt="Where we are: boots, first picture, controller and menus done; loading screens now; gameplay and 30 fps ahead">
+<img src="docs/banana/fps_goal.svg" width="49%" alt="Road to 30 fps: 8.5 of 30 fps on the menus, 28 percent">
+</p>
+
+<p align="center">
 <img src="docs/screenshots/2026-11-25-sign-in-screen.png" width="49%" alt="Sign-in screen">
 <img src="docs/screenshots/2026-11-25-legal-notices.webp" width="49%" alt="Legal notices screen">
 <img src="docs/screenshots/2026-11-25-finish-setup.webp" width="49%" alt="Finish setup screen">
