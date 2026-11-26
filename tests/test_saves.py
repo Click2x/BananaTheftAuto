@@ -508,13 +508,17 @@ class ProfileRecordTest(unittest.TestCase):
             self.assertIn("kind=3", out)
             self.assertIn("active=112B", out)
 
-    def test_profile_rejects_invalid_version_or_kind(self):
-        with self.assertRaises(ValueError):
-            saves.parse_profile(struct.pack("<II", 9, 3) + bytes(1636))
+    def test_profile_rejects_invalid_kind(self):
         with self.assertRaises(ValueError):
             saves.parse_profile(struct.pack("<II", 10, 2) + bytes(1636))
         with self.assertRaises(ValueError):
             saves.parse_profile(b"\x0a\x00")
+
+    def test_profile_versions(self):
+        # 10: the retail sample set; 6: the record the recompiled title wrote on its first run. Others decode, flagged.
+        for version, known in ((10, True), (6, True), (9, False)):
+            rec = saves.parse_profile(struct.pack("<II", version, 3) + bytes(1636))
+            self.assertEqual((rec["version"], rec["known_version"]), (version, known))
 
 
 class MalformedAsavTest(unittest.TestCase):
