@@ -67,6 +67,7 @@ What works, what is being worked on, and what is next. Every line is backed by a
 2. Make the menu's build do what was done by hand here: the graphics shader library, SDL3 and the BCPack predictor file.
 3. The last 84 untranslated graphics programs (78 need a hardware measurement first, 6 have no shader container).
 4. Frame rate.
+5. Soon: an in-game mod menu on F1 (started on the `f1-menu` branch; parked because it did not show on screen yet).
 
 ## For helpers
 
