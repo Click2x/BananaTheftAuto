@@ -3483,6 +3483,14 @@ struct DeviceState {
                          static_cast<unsigned long long>(heap->images[unsigned(TitleImage::unknown)]),
                          static_cast<unsigned long long>(heap->images[unsigned(TitleImage::refused)]),
                          static_cast<unsigned long long>(heap->images[unsigned(TitleImage::not_tsharp)]));
+            if (heap->pages) {
+                const auto& why = heap->pages->copy_bytes();
+                std::fprintf(stderr,
+                             "[rt] d3d12: console heap copy by cause (last refresh, KiB): guarded %.1f, unguarded %.1f, "
+                             "aliased %.1f, pinned %.1f, read-only %.1f, copy-on-write %.1f, write-watched %.1f\n",
+                             why[0] / 1024.0, why[1] / 1024.0, why[2] / 1024.0, why[3] / 1024.0, why[4] / 1024.0,
+                             why[5] / 1024.0, why[6] / 1024.0);
+            }
             heap->copied = heap->vsharps = heap->unbacked = heap->retried = heap->deferred_fixes = 0;
             for (auto& n : heap->images) n = 0;
             heap->ms = heap->pages_ms = heap->fix_ms = heap->retry_ms = 0;
