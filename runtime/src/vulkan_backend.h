@@ -1612,8 +1612,39 @@ public:
         LayoutPieces pieces;
         if (!tracker_.pieces(id, range, pieces) || pieces.empty()) return VK_ERROR_UNKNOWN;
         if (image_work_pending_) {
-            const auto r = observe_result(vk.vkDeviceWaitIdle(device_), "vkDeviceWaitIdle (title staging)");
-            if (r != VK_SUCCESS) return r;
+            // A bounded wait for the submitted work instead of vkDeviceWaitIdle: work can sit on the GPU waiting for a
+            // signal that only a later submission (which needs submit_mutex_, held here) delivers, and an unbounded wait
+            // then hung the submitting thread until the GPU was reset or the title's own watchdog stopped it. When the
+            // work is not done within LEONIDA_TITLE_STAGING_WAIT_MS (100 by default; 0: the old unbounded device wait),
+            // the upload is refused for now and the texture is filled again on a later refresh.
+            static const std::uint64_t wait_ms = [] {
+                const char* v = std::getenv("LEONIDA_TITLE_STAGING_WAIT_MS");
+                return v && *v ? std::strtoull(v, nullptr, 10) : 100ull;
+            }();
+            if (!wait_ms) {
+                const auto r = observe_result(vk.vkDeviceWaitIdle(device_), "vkDeviceWaitIdle (title staging)");
+                if (r != VK_SUCCESS) return r;
+            } else {
+                const auto pending = retire_tickets_.pending_through(submitted_ticket_.load(std::memory_order_acquire));
+                if (!pending.empty()) {
+                    std::vector<VkSemaphore> semaphores;
+                    std::vector<std::uint64_t> values;
+                    for (const auto& [semaphore, value] : pending) {
+                        semaphores.push_back(semaphore);
+                        values.push_back(value);
+                    }
+                    VkSemaphoreWaitInfo wait{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
+                    wait.semaphoreCount = std::uint32_t(semaphores.size());
+                    wait.pSemaphores = semaphores.data();
+                    wait.pValues = values.data();
+                    const VkResult r = vk.vkWaitSemaphores(device_, &wait, wait_ms * 1000000ull);
+                    if (r == VK_TIMEOUT) {
+                        ++staging_deferred_;
+                        return VK_NOT_READY;
+                    }
+                    if (observe_result(r, "vkWaitSemaphores (title staging)") != VK_SUCCESS) return r;
+                }
+            }
             image_work_pending_ = false;
         }
         const auto r = observe_result(copy(replay_, pieces), "title staging upload");
@@ -2171,6 +2202,7 @@ private:
     alignas(64) std::mutex views_mutex_;
     alignas(64) std::mutex submit_mutex_;
     bool image_work_pending_ = false;  // under submit_mutex_
+    std::uint64_t staging_deferred_ = 0;  // title staging uploads refused because submitted work was still running
     HostTextureStats host_texture_stats_;  // under submit_mutex_
     RetireTickets<VkSemaphore> retire_tickets_;
     std::atomic<std::uint64_t> submitted_ticket_{0};

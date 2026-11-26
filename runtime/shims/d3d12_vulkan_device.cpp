@@ -10203,7 +10203,12 @@ void DeviceState::title_texture_unmapped(const void* resource, std::uint64_t add
 }
 
 void DeviceState::title_texture_gone(const void* resource, std::uint64_t address) {
-    std::lock_guard lock(title_texture_mutex);
+    // A slot-70 view written under the registry (t_in_title_textures: this thread holds title_texture_mutex) can drop the
+    // last reference to the texture its descriptor named before, and that texture's destructor lands here. Taking the
+    // mutex again then threw resource_deadlock_would_occur inside ~Resource (std::terminate) or hung the submitting
+    // thread until the title's watchdog stopped it. The lock is already held in that case.
+    std::unique_lock lock(title_texture_mutex, std::defer_lock);
+    if (!t_in_title_textures) lock.lock();
     {
         std::lock_guard descriptors(descriptor_mutex);
         gpu_placements.remove(address, resource);
