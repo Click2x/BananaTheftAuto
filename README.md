@@ -89,6 +89,7 @@ How we got here, problem by problem: **[DEVLOG.md](DEVLOG.md)**. Community updat
 | ✅ | Graphics pipelines and shaders | done |
 | ✅ | **First picture**: the title's own sign-in screen | done 2026-11-25 |
 | ✅ | Controller input | done 2026-11-25 |
+| 🧪 | PlayStation 4 / 5 controllers (DualShock 4, DualSense): supported in the build, rumble and lightbar included. **Needs testers** | testing |
 | ✅ | First-run screens and logo | done 2026-11-25 |
 | ✅ | Loading screens with their artwork | done 2026-11-25 |
 | ✅ | Banana window with a live fps counter | done 2026-11-25 |
