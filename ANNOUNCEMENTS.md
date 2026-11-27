@@ -7,6 +7,16 @@ What we've posted to the community, newest first. Status only: what changed and 
 
 ---
 
+## 27 Nov 2026 (evening): World drawing up to 5× faster
+
+<p align="center"><img src="docs/updates/2026-11-27-5x-faster-card.png" width="80%" alt="World drawing up to 5x faster"></p>
+
+- ✅ The heaviest world-drawing shaders now run up to 5× faster on the graphics card (measured in-game)
+- ✅ Menu: **Update** now also checks your build after a power cut or crash, and every build has a build id
+- 🔧 Next up: turning that into a higher frame rate
+
+---
+
 ## 27 Nov 2026 (midday): First in-game view
 
 <p align="center"><img src="docs/screenshots/2026-11-27-player-in-the-street.png" width="80%" alt="The player standing in a daytime street"></p>
