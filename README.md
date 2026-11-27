@@ -102,6 +102,7 @@ How we got here, problem by problem: **[DEVLOG.md](DEVLOG.md)**. Community updat
 | ✅ | First character on screen, 30-minute run with no crash | done 2026-11-27 |
 | ✅ | Opening credits scenes drawing (rooftops, skyline, interiors) | done 2026-11-27 |
 | ✅ | **First in-game view**: the player in a daytime street | done 2026-11-27 |
+| ✅ | World drawing up to 5× faster (the heaviest world shaders; up to ~40× for some) | done 2026-11-27 |
 | 🔧 | A clean picture (no white or black flashes) | in progress |
 | ⬜ | Fully drawn opening scene | next |
 | ⬜ | Gameplay on screen | after that |
