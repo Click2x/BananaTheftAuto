@@ -2874,6 +2874,8 @@ struct DeviceState {
         VkDeviceAddress address = 0;
         leonida::address_guard::Table table;
         bool overflow_logged = false;
+        std::uint32_t logged_refusals = 0;
+        ULONGLONG logged_at = 0;
         std::mutex mutex;
     } address_guard;
 
@@ -2917,6 +2919,21 @@ struct DeviceState {
         std::lock_guard lock(address_guard.mutex);
         // Refused accesses since the last submission may have written the sink: reads of it return zeros again.
         std::memset(arena.mapped + ag::kSinkOffset, 0, std::size_t(ag::kRegionEnd - ag::kSinkOffset));
+        // Guarded shaders count their refusals in header word 6 and name the last refusing module in word 7.
+        {
+            const auto* h = reinterpret_cast<const volatile std::uint32_t*>(arena.mapped + ag::kHeaderOffset);
+            const std::uint32_t refused = h[6], module = h[7];
+            const std::uint64_t offset = std::uint64_t(h[8]) | (std::uint64_t(h[9]) << 32);
+            const ULONGLONG now = GetTickCount64();
+            if (refused != address_guard.logged_refusals && now - address_guard.logged_at >= 1000) {
+                std::fprintf(stderr, "[rt] d3d12: address guard: %u refused accesses so far, the last by module 0x%08x "
+                                     "at offset 0x%llx (device address 0x%llx)\n",
+                             refused, module, static_cast<unsigned long long>(offset),
+                             static_cast<unsigned long long>(arena.address + offset));
+                address_guard.logged_refusals = refused;
+                address_guard.logged_at = now;
+            }
+        }
         if (!address_guard.table.rebuild(arena.address, arena.size)) return;
         address_guard.table.upload(address_guard.mapped);
         if (address_guard.table.overflowed() && !address_guard.overflow_logged) {

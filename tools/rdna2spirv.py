@@ -423,6 +423,7 @@ class Gen:
         self.succ = []        # per basic block: the blocks it can go to next (none = the program ends there)
         self.desc_fn = None   # lines of the descriptor-lookup function, once an instruction needs it
         self.guard_fn = None  # lines of %guard_fn (--address-guard), once host_addr needs it
+        self.guard_module_id = 0  # FNV-1a of the file stem, stored with each refusal (guard_function)
         self.tbuffer_norm_fns: dict[int, list[str]] = {}  # one exact quotient per used magnitude width
         self.fmt_fn = None    # lines of the typed-buffer format-decode function, once a dynamic-format load needs it
         self.fmt_norm_fn = None    # lines of the shared exact norm quotient for a run-time width (SHADER-849)
@@ -1667,6 +1668,29 @@ class Gen:
               "OpBranch %gd_merge",
               "%gd_merge = OpLabel",
               "%gd_ok = OpPhi %bool %true %gd_entry %gd_okc %gd_check",
+              # A refusal is counted in header word 6 and names its module (FNV-1a of the file's stem) in word 7.
+              "OpSelectionMerge %gd_done None",
+              "OpBranchConditional %gd_ok %gd_done %gd_count",
+              "%gd_count = OpLabel"]
+        word_at = hdr + 24
+        L += [f"%gd_cnt_a = OpIAdd %ulong %gd_base {cl(word_at)}",
+              "%gd_cnt_p = OpConvertUToPtr %_ptr_PSB_uint %gd_cnt_a",
+              f"%gd_cnt_old = OpAtomicIAdd %uint %gd_cnt_p {cu(1)} {cu(0)} {cu(1)}",
+              f"%gd_mod_a = OpIAdd %ulong %gd_base {cl(word_at + 4)}",
+              "%gd_mod_p = OpConvertUToPtr %_ptr_PSB_uint %gd_mod_a",
+              f"OpStore %gd_mod_p {cu(self.guard_module_id)} Aligned 4",
+              # and the refused offset in words 8 and 9
+              "%gd_off_lo = OpUConvert %uint %gd_off",
+              f"%gd_off_hs = OpShiftRightLogical %ulong %gd_off {cl(32)}",
+              "%gd_off_hi = OpUConvert %uint %gd_off_hs",
+              f"%gd_lo_a = OpIAdd %ulong %gd_base {cl(word_at + 8)}",
+              "%gd_lo_p = OpConvertUToPtr %_ptr_PSB_uint %gd_lo_a",
+              "OpStore %gd_lo_p %gd_off_lo Aligned 4",
+              f"%gd_hi_a = OpIAdd %ulong %gd_base {cl(word_at + 12)}",
+              "%gd_hi_p = OpConvertUToPtr %_ptr_PSB_uint %gd_hi_a",
+              "OpStore %gd_hi_p %gd_off_hi Aligned 4",
+              "OpBranch %gd_done",
+              "%gd_done = OpLabel",
               f"%gd_low = OpBitwiseAnd %ulong %gd_off {cl(0xFFF)}",
               f"%gd_sink = OpIAdd %ulong %gd_low {cl(0x71000)}",
               "%gd_sel = OpSelect %ulong %gd_ok %gd_off %gd_sink",
@@ -18048,6 +18072,11 @@ def translate(path):
     else:
         check_printed_encodings(path, info)
     g = Gen(stage, hoist_reg_ptrs=True, cache_active=True)
+    stem = os.path.splitext(os.path.basename(path))[0]
+    h = 0x811C9DC5
+    for ch in stem.encode():
+        h = ((h ^ ch) * 0x01000193) & 0xFFFFFFFF
+    g.guard_module_id = h
     g.vcc_scalar_pointer = any(i["op"].startswith("s_load_dword") and len(i["args"]) >= 2 and
                                i["args"][1].get("t") == "vcc" for i in insns)
     g.exec_static_true = not any(writes_exec(i) for i in insns)
