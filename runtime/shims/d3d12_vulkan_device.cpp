@@ -389,15 +389,22 @@ public:
     // opened the page), so the copy holds either the same bytes or the GPU's result. Pieces of 256 bytes that differ
     // are written, after the page is opened. Zeroed, aliased, pinned and requeried pages are left alone. Returns the
     // bytes written. Runs before refresh(), which then copies those pages forward again (the same bytes).
-    std::size_t write_back(std::uintptr_t from, std::uintptr_t to) {
+    // With `snapshot` (the title's bytes of [snap_begin, snap_begin + snapshot size) taken right after the forward
+    // copy for the submission that wrote): any page qualifies, and a piece is written back when the GPU changed it
+    // (copy != snapshot) and the title did not (title == snapshot), a three-way merge that needs no page guard. Reads
+    // and writes of the title's pages go through copy_guarded: a page may have been unmapped since.
+    std::size_t write_back(std::uintptr_t from, std::uintptr_t to, std::uintptr_t snap_begin = 0,
+                           const std::vector<std::uint8_t>* snapshot = nullptr) {
         from = std::max(from, first_), to = std::min(to, last_);
         if (from >= to) return 0;
         constexpr std::uintptr_t kPiece = 256;
         AcquireSRWLockExclusive(&lock_);
         std::size_t written = 0;
+        std::uint8_t now[kPiece];
         for (std::uintptr_t page = from & ~(kPage - 1); page < to; page += kPage) {
             const std::uint8_t s = state_[(page - first_) / kPage];
-            if (!(s & kProtected) || (s & (kZero | kAliased | kPinned | kRequery))) continue;
+            if (s & (kZero | kAliased | kPinned | kRequery)) continue;
+            if (!snapshot && !(s & kProtected)) continue;
             const std::uintptr_t a = std::max(page, from), b = std::min(page + kPage, to);
             bool opened = false;
             for (const Target& t : targets_) {
@@ -405,16 +412,25 @@ public:
                 if (x0 >= y0 || !t.shadow) continue;
                 for (std::uintptr_t x = x0; x < y0;) {
                     const std::uintptr_t y = std::min(y0, (x & ~(kPiece - 1)) + kPiece);
+                    const std::size_t n = y - x;
                     const std::uint8_t* copy = t.shadow + (x - t.begin);
-                    if (std::memcmp(reinterpret_cast<const void*>(x), copy, y - x) != 0) {
-                        if (!opened) {
-                            reopen_locked(page, page + kPage);
-                            opened = true;
-                        }
-                        std::memcpy(reinterpret_cast<void*>(x), copy, y - x);
-                        written += y - x;
-                    }
                     x = y;
+                    if (!copy_guarded(now, reinterpret_cast<const std::uint8_t*>(y - n), n, false)) continue;
+                    bool write = false;
+                    if (snapshot) {
+                        const std::uintptr_t at = y - n;
+                        if (at < snap_begin || at + n > snap_begin + snapshot->size()) continue;
+                        const std::uint8_t* before = snapshot->data() + (at - snap_begin);
+                        write = std::memcmp(copy, before, n) != 0 && std::memcmp(now, before, n) == 0;
+                    } else {
+                        write = std::memcmp(now, copy, n) != 0;
+                    }
+                    if (!write) continue;
+                    if (!opened && (s & kProtected)) {
+                        reopen_locked(page, page + kPage);
+                        opened = true;
+                    }
+                    if (copy_guarded(reinterpret_cast<std::uint8_t*>(y - n), copy, n, false)) written += n;
                 }
             }
         }
@@ -2189,6 +2205,7 @@ struct DeviceState {
             shadow_written += s->refresh_written();
             for (unsigned k = 0; k < shadow_copy_bytes.size(); ++k) shadow_copy_bytes[k] += s->copy_bytes()[k];
         }
+        snapshot_write_back();  // the title's bytes as the coming submission's copies start, for the three-way merge
         const auto now = clock::now();
         const double ms = std::chrono::duration<double, std::milli>(now - start).count();
         shadow_ms += ms;
@@ -2910,7 +2927,27 @@ struct DeviceState {
     // are written back (ShadowPages::write_back), before the forward copies. LEONIDA_TITLE_WRITEBACK=0 turns it off.
     struct WriteBackRange {
         std::uint64_t begin, end, ticket;
+        std::shared_ptr<std::vector<std::uint8_t>> snapshot;  // the title's bytes after the forward copy, or none
     };
+    static constexpr std::uint64_t kWriteBackSnapshotBytes = 64ull << 20;  // per submission
+
+    // After the forward copies: ranges noted for the coming submission get a snapshot of the title's bytes, so the
+    // write-back can tell the GPU's changes from the title's own (ShadowPages::write_back).
+    void snapshot_write_back() {
+        const std::uint64_t ticket = context->submitted_retire_ticket() + 1;
+        std::lock_guard lock(write_back_mutex);
+        std::uint64_t taken = 0;
+        for (WriteBackRange& r : write_back_pending) {
+            if (r.ticket != ticket || r.snapshot) continue;
+            const std::uint64_t bytes = r.end - r.begin;
+            if (taken + bytes > kWriteBackSnapshotBytes) break;
+            auto snap = std::make_shared<std::vector<std::uint8_t>>(std::size_t(bytes));
+            if (!copy_guarded(snap->data(), reinterpret_cast<const std::uint8_t*>(r.begin), std::size_t(bytes), false))
+                continue;  // a page unmapped: this range keeps the guarded-pages rule
+            r.snapshot = std::move(snap);
+            taken += bytes;
+        }
+    }
     std::mutex write_back_mutex;  // its own: taken under shadow_mutex, never the other way round
     std::vector<WriteBackRange> write_back_pending;
     std::uint64_t write_back_bytes_total = 0, write_back_logs = 0, write_back_dropped = 0;
@@ -2960,23 +2997,12 @@ struct DeviceState {
             write_back_pending.erase(keep, write_back_pending.end());
         }
         if (ready.empty()) return;
-        std::sort(ready.begin(), ready.end(), [](const auto& a, const auto& b) { return a.begin < b.begin; });
+        std::sort(ready.begin(), ready.end(), [](const auto& a, const auto& b) { return a.ticket < b.ticket; });
         std::uint64_t written = 0;
-        std::uint64_t begin = ready.front().begin, end = ready.front().end;
-        const auto flush = [&] {
+        for (const WriteBackRange& r : ready)
             for (const ShadowPagesPtr& s : shadows)
-                if (end > s->first() && begin < s->last()) written += s->write_back(begin, end);
-        };
-        for (std::size_t i = 1; i < ready.size(); ++i) {
-            if (ready[i].begin <= end) {
-                end = std::max(end, ready[i].end);
-            } else {
-                flush();
-                begin = ready[i].begin;
-                end = ready[i].end;
-            }
-        }
-        flush();
+                if (r.end > s->first() && r.begin < s->last())
+                    written += s->write_back(r.begin, r.end, r.begin, r.snapshot.get());
         write_back_bytes_total += written;
         if (written && (++write_back_logs <= 4 || !(write_back_logs & (write_back_logs - 1))))
             std::fprintf(stderr, "[rt] d3d12: title write-back: %llu KiB of GPU writes went back to the title's pages "
