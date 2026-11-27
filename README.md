@@ -34,6 +34,11 @@ How we got here, problem by problem: **[DEVLOG.md](DEVLOG.md)**.
 </p>
 
 <p align="center">
+<img src="docs/screenshots/2026-11-26-first-world.png" width="98%" alt="First world render: the opening cinematic's night skyline over water, with the credits">
+</p>
+<p align="center"><sub>2026-11-26: the first 3D world render, the opening cinematic. Frames still alternate with white and black ones.</sub></p>
+
+<p align="center">
 <img src="docs/screenshots/2026-11-26-first-hud.png" width="98%" alt="First in-game HUD: the minimap with its north marker and player arrow">
 </p>
 <p align="center"><sub>2026-11-26: the first in-game frame. The HUD's minimap is drawn; the world behind it is not yet (brightened to show it).</sub></p>
