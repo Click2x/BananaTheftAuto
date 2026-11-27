@@ -2559,7 +2559,7 @@ ReplayResult prepare_draw(const Draw& draw, const IndirectDrawArgs* arguments, R
         // A mesh draw has no topology, first instance or index buffer. Its records always go through the clamp pass,
         // which bounds x and sets y = z = 1 (the console's mesh dispatch is one-dimensional), or it is not drawn.
         if (draw.mesh && (!entry_available || !leonida::indirect_clamp_enabled())) return skip(indirect_stats::mesh);
-        if (!draw.mesh && draw.topology != 4) return skip(indirect_stats::topology);
+        if (!draw.mesh && !indirect_stats::topology_supported(draw.topology)) return skip(indirect_stats::topology);
         if (!draw.mesh && !vk.draw_indirect_first_instance) return skip(indirect_stats::first_instance);
         if (!entry_available) return skip(indirect_stats::entry);
         if (draw.indexed && !vk.bind_robust_index_view) return skip(indirect_stats::robust_index);

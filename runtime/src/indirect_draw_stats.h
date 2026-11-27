@@ -16,6 +16,12 @@ inline constexpr const char* reason_names[]{"compound signature", "opt-out", "mi
     "count buffer lacks indirect creation usage", "nonunit vertex divisor", "pipeline pending",
     "invalid index view", "index view outside buffer or misaligned", "legacy command has no graphics state"};
 static_assert(sizeof(reason_names) / sizeof(*reason_names) == reason_count);
+// Topologies an indirect draw can replay without changing its vertex or index count: POINTLIST(1), LINELIST(2),
+// LINESTRIP(3), TRIANGLELIST(4), TRIANGLESTRIP(5), the *_ADJ ones (10..13) and the console's RECTLIST(17, drawn
+// through the geometry stage as direct draws are). UNDEFINED, QUADLIST(19) and patch lists stay skipped.
+inline constexpr bool topology_supported(unsigned value) {
+    return (value >= 1 && value <= 5) || (value >= 10 && value <= 13) || value == 17;
+}
 // Skips by reason, for the report (Banana Theft Auto).
 inline std::atomic<unsigned long long>* skips_by_reason() {
     static std::atomic<unsigned long long> counts[reason_count]{};

@@ -3105,6 +3105,18 @@ struct DeviceState {
                 if (released)
                     std::fprintf(stderr, "%.1f s ago (0x%llx, %llu bytes)", double(now - was.at) / 1000.0,
                                  static_cast<unsigned long long>(was.address), static_cast<unsigned long long>(was.bytes));
+                {
+                    // The runtime's own records: if they back this address, the guard's registry missed a buffer.
+                    bool in_backings = false;
+                    {
+                        std::lock_guard backing_lock(backing_mutex);
+                        in_backings = gpu_backings.covers(device_address, 1);
+                    }
+                    std::uint64_t host = 0, room = 0;
+                    const bool in_geometry = geometry.cap() && geometry.lookup(device_address, host, room);
+                    std::fprintf(stderr, "; runtime backings: %s, geometry copies: %s", in_backings ? "YES" : "no",
+                                 in_geometry ? "YES" : "no");
+                }
                 leonida::address_guard::Registry::Gone gone{};
                 if (leonida::address_guard::destroyed_holding(device_address, gone))
                     std::fprintf(stderr, "; in a buffer destroyed %.1f s ago (0x%llx, %llu bytes)\n",
