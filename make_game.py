@@ -2119,7 +2119,7 @@ def translate(disasm: str, spirv: str, jobs: int, emulate: bool = False,
     if len(todo) < jobs:
         log(f"  keeping {jobs - len(todo)} of {jobs} shards finished by the run before")
     tool = os.path.join(TOOLS, "rdna2spirv.py")
-    extra = ["--wave64-emulate"] if emulate else []
+    extra = ["--wave64-emulate", "--mesh-wave-serial"] if emulate else []
     extra.extend(fallbacks)
     if todo:
         which = f"0..{jobs - 1}" if len(todo) == jobs else ",".join(str(i) for i in todo)

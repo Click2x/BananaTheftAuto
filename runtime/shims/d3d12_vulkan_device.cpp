@@ -11630,7 +11630,16 @@ public:
                 return v && *v ? std::atoi(v) : 0;
             }();
             bool full = true;
-            if (per_frame) {
+            // LEONIDA_REFRESH_PER_FRAME_AFTER_S=<s>: the per-frame refresh starts only that many seconds after the
+            // process started (every submission refreshes before), e.g. to leave the intro as it is and speed up the
+            // world.
+            static const auto per_frame_after = [] {
+                const char* v = std::getenv("LEONIDA_REFRESH_PER_FRAME_AFTER_S");
+                return std::chrono::seconds(v && *v ? std::atoi(v) : 0);
+            }();
+            static const auto process_start = std::chrono::steady_clock::now();
+            if (per_frame && (per_frame_after.count() == 0 ||
+                              std::chrono::steady_clock::now() - process_start >= per_frame_after)) {
                 const std::uint64_t serial = phases::totals().present_serial.load(std::memory_order_relaxed);
                 full = refreshed_present_.exchange(serial, std::memory_order_relaxed) != serial;
             }
