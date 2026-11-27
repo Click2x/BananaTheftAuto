@@ -384,6 +384,44 @@ public:
         for (const Job& job : zeroed_) f(job.offset, job.bytes);
     }
 
+    // Banana Theft Auto: the GPU's writes into the copies of [from, to) go back to the title's pages. Only pages still
+    // guarded since they were copied qualify: the title cannot have written them (its write would have faulted and
+    // opened the page), so the copy holds either the same bytes or the GPU's result. Pieces of 256 bytes that differ
+    // are written, after the page is opened. Zeroed, aliased, pinned and requeried pages are left alone. Returns the
+    // bytes written. Runs before refresh(), which then copies those pages forward again (the same bytes).
+    std::size_t write_back(std::uintptr_t from, std::uintptr_t to) {
+        from = std::max(from, first_), to = std::min(to, last_);
+        if (from >= to) return 0;
+        constexpr std::uintptr_t kPiece = 256;
+        AcquireSRWLockExclusive(&lock_);
+        std::size_t written = 0;
+        for (std::uintptr_t page = from & ~(kPage - 1); page < to; page += kPage) {
+            const std::uint8_t s = state_[(page - first_) / kPage];
+            if (!(s & kProtected) || (s & (kZero | kAliased | kPinned | kRequery))) continue;
+            const std::uintptr_t a = std::max(page, from), b = std::min(page + kPage, to);
+            bool opened = false;
+            for (const Target& t : targets_) {
+                const std::uintptr_t x0 = std::max(a, t.begin), y0 = std::min(b, t.end);
+                if (x0 >= y0 || !t.shadow) continue;
+                for (std::uintptr_t x = x0; x < y0;) {
+                    const std::uintptr_t y = std::min(y0, (x & ~(kPiece - 1)) + kPiece);
+                    const std::uint8_t* copy = t.shadow + (x - t.begin);
+                    if (std::memcmp(reinterpret_cast<const void*>(x), copy, y - x) != 0) {
+                        if (!opened) {
+                            reopen_locked(page, page + kPage);
+                            opened = true;
+                        }
+                        std::memcpy(reinterpret_cast<void*>(x), copy, y - x);
+                        written += y - x;
+                    }
+                    x = y;
+                }
+            }
+        }
+        ReleaseSRWLockExclusive(&lock_);
+        return written;
+    }
+
     // Brings every target up to date with the pages. Returns the bytes copied into them. With copy_aliased false, pages
     // xmem maps at another address too are left as they are this time (DeviceState::refresh_shadows throttles them).
     std::size_t refresh(bool copy_aliased = true) {
@@ -2129,6 +2167,7 @@ struct DeviceState {
         const leonida::submit_phases::Scope timed(leonida::submit_phases::shadows);
         std::lock_guard lock(shadow_mutex);
         if (shadows.empty()) return;
+        write_back_titles();  // the last submissions' writes into the copies, before the forward copies below
         const auto start = clock::now();
         // LEONIDA_SHADOW_ALIAS_MS (0 by default: every submission): pages xmem maps at two addresses, which no guard
         // can watch, are copied at most this often. After the story load they were 59 MiB a submission (speed-6); a
@@ -2863,6 +2902,87 @@ struct DeviceState {
             gpu_backings.erase(address, id);
             released_backings.fetch_add(1, std::memory_order_release);
         }
+    }
+
+    // Banana Theft Auto: GPU writes into copies of the title's memory go back to the title's pages. Every title range
+    // a submission's bindings resolve to a copy is noted with that submission's ticket (a descriptor does not say
+    // whether it is written, so all are); at a later refresh, once the GPU has finished that submission, its ranges
+    // are written back (ShadowPages::write_back), before the forward copies. LEONIDA_TITLE_WRITEBACK=0 turns it off.
+    struct WriteBackRange {
+        std::uint64_t begin, end, ticket;
+    };
+    std::mutex write_back_mutex;  // its own: taken under shadow_mutex, never the other way round
+    std::vector<WriteBackRange> write_back_pending;
+    std::uint64_t write_back_bytes_total = 0, write_back_logs = 0, write_back_dropped = 0;
+    static constexpr std::size_t kWriteBackMaxRanges = 16384;
+
+    void note_title_write(std::uint64_t va, std::uint64_t bytes) {
+        static const bool on = [] {
+            const char* v = std::getenv("LEONIDA_TITLE_WRITEBACK");
+            return !(v && v[0] == '0');
+        }();
+        if (!on || !va || !bytes) return;
+        std::uint64_t lo = 0, hi = 0;
+        if (!leonida::title_va_aliases().title_memory(va, lo, hi) || va >= hi) return;
+        const std::uint64_t end = va + std::min(bytes, hi - va);
+        const std::uint64_t ticket = context->submitted_retire_ticket() + 1;
+        std::lock_guard lock(write_back_mutex);
+        if (!write_back_pending.empty()) {
+            WriteBackRange& last = write_back_pending.back();
+            if (last.ticket == ticket && va <= last.end && end >= last.begin) {  // the common case: touching ranges
+                last.begin = std::min(last.begin, va);
+                last.end = std::max(last.end, end);
+                return;
+            }
+        }
+        if (write_back_pending.size() >= kWriteBackMaxRanges) {
+            if (!write_back_dropped++)
+                std::fprintf(stderr, "[rt] d3d12: title write-back: more than %zu ranges pending; later ones are not "
+                                     "written back\n", kWriteBackMaxRanges);
+            return;
+        }
+        write_back_pending.push_back({va, end, ticket});
+    }
+
+    // Under shadow_mutex, at the start of a refresh.
+    void write_back_titles() {
+        std::vector<WriteBackRange> ready;
+        {
+            std::lock_guard lock(write_back_mutex);
+            if (write_back_pending.empty()) return;
+        }
+        const std::uint64_t done = context->completed_retire_ticket();
+        {
+            std::lock_guard lock(write_back_mutex);
+            auto keep = std::stable_partition(write_back_pending.begin(), write_back_pending.end(),
+                                              [done](const WriteBackRange& r) { return r.ticket > done; });
+            ready.assign(keep, write_back_pending.end());
+            write_back_pending.erase(keep, write_back_pending.end());
+        }
+        if (ready.empty()) return;
+        std::sort(ready.begin(), ready.end(), [](const auto& a, const auto& b) { return a.begin < b.begin; });
+        std::uint64_t written = 0;
+        std::uint64_t begin = ready.front().begin, end = ready.front().end;
+        const auto flush = [&] {
+            for (const ShadowPagesPtr& s : shadows)
+                if (end > s->first() && begin < s->last()) written += s->write_back(begin, end);
+        };
+        for (std::size_t i = 1; i < ready.size(); ++i) {
+            if (ready[i].begin <= end) {
+                end = std::max(end, ready[i].end);
+            } else {
+                flush();
+                begin = ready[i].begin;
+                end = ready[i].end;
+            }
+        }
+        flush();
+        write_back_bytes_total += written;
+        if (written && (++write_back_logs <= 4 || !(write_back_logs & (write_back_logs - 1))))
+            std::fprintf(stderr, "[rt] d3d12: title write-back: %llu KiB of GPU writes went back to the title's pages "
+                                 "(%llu KiB so far)\n",
+                         static_cast<unsigned long long>(written >> 10),
+                         static_cast<unsigned long long>(write_back_bytes_total >> 10));
     }
 
     // LEONIDA_ADDRESS_GUARD (src/address_guard.h): the page table guarded shaders check, kept current before each
@@ -11195,6 +11315,9 @@ public:
             [](void* device, std::uint64_t table, std::uint32_t descriptors) {
                 static_cast<DeviceState*>(device)->scan_title_table(table, descriptors);
             });
+        leonida::title_va_aliases().set_noter([](void* device, std::uint64_t va, std::uint64_t bytes) {
+            static_cast<DeviceState*>(device)->note_title_write(va, bytes);
+        });
         state_.image_memory = std::make_unique<leonida::ImageMemory>(
             [device = info.device, make = state_.context->vk.vkAllocateMemory](std::uint32_t type, std::uint64_t bytes) {
                 VkMemoryAllocateInfo block{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};

@@ -41,6 +41,9 @@ public:
     // made: the view is then written with a zero-size range, never with the raw address). False: not the title's
     // memory (an arena VA, a buffer of the layer's).
     using Resolver = bool (*)(void* context, std::uint64_t va, std::uint64_t bytes, std::uint64_t& shader_va);
+    // Banana Theft Auto: told of every title range a binding resolves to a copy of (the device writes the GPU's
+    // writes back to the title's pages after the submission).
+    using Noter = void (*)(void* context, std::uint64_t va, std::uint64_t bytes);
     using TableScanner = void (*)(void* context, std::uint64_t table_va, std::uint32_t descriptors);
 
     // [title_va, title_va + bytes) is reached as [shader_va, shader_va + bytes). A range that overlaps a live one
@@ -147,6 +150,7 @@ public:
         std::uint64_t to = shader_va(va);
         if (to != va) {
             translated_[kind].fetch_add(1, std::memory_order_relaxed);
+            note_reached(va, bytes);
             return to;
         }
         Resolver resolver;
@@ -158,6 +162,7 @@ public:
         }
         if (!resolver || !resolver(context, va, bytes, to)) return va;
         (to != va ? translated_ : untranslated_)[kind].fetch_add(1, std::memory_order_relaxed);
+        if (to != va) note_reached(va, bytes);
         return to;
     }
 
@@ -307,6 +312,22 @@ public:
         hook_context_ = nullptr;
         resolver_ = nullptr;
         scanner_ = nullptr;
+        noter_ = nullptr;
+    }
+    // After set_hooks: the device's noter (Noter).
+    void set_noter(Noter noter) {
+        std::lock_guard lock(hook_mutex_);
+        noter_ = noter;
+    }
+    void note_reached(std::uint64_t va, std::uint64_t bytes) {
+        Noter noter;
+        void* context;
+        {
+            std::lock_guard lock(hook_mutex_);
+            noter = noter_;
+            context = hook_context_;
+        }
+        if (noter && context) noter(context, va, bytes);
     }
     // The resolver alone, for a device that scans its descriptor tables itself.
     void set_resolver(void* context, Resolver resolver) { set_hooks(context, resolver, nullptr); }
@@ -343,6 +364,7 @@ private:
     void* maker_context_ = nullptr;
     BufferMaker maker_ = nullptr;
     Resolver resolver_ = nullptr;
+    Noter noter_ = nullptr;
     TableScanner scanner_ = nullptr;
     void* source_context_ = nullptr;
     DescriptorSource source_ = nullptr;
