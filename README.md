@@ -7,12 +7,27 @@ Windows and Vulkan, which is itself a continuation of an earlier project (see Cr
 that finds your own copy of the game, checks your PC, offers the tools the build needs (asking first) and starts the build, plus our
 own runtime and shader fixes. It does not contain, download or share any game files.
 
-> **Status (2026-11-25): early, the game does not play yet, but it boots to its menus.** On the author's PC (RTX 3090) the recompiled
-> title loads, draws its own screens with its real shaders, fonts and textures, takes controller input, goes through its first-run
-> setup and reaches its loading screens. It does not get past them yet.
+> **Status (2026-11-26): early, the game does not play yet, but it is loading the world.** On the author's PC (RTX 3090) the recompiled
+> title loads, draws its own screens with its real shaders, fonts and textures, takes controller input and goes through its first-run
+> setup. As of 2026-11-26 it gets past the loading-screen stops of the day before: for the first time it ran a full 15-minute test
+> without crashing and went on into loading the world. No world picture yet.
+
+### What we're working on now
+
+- **The world load.** The game now gets into loading the world, then stops when the graphics card hangs on work the game queues at
+  the start of the world. That hang is the current blocker, and we're narrowing down which part of that work causes it.
+- **Fixes from today:** several crashes during loading are fixed, including missing graphics effects the game asks for while it loads
+  and a memory bug in streaming. Each run now gets further than the one before.
+
+### What to expect next
+
+- **The first world picture** is the next milestone and the next screenshot we hope to share. It will be very slow at first: during
+  the world load the game runs at well under 1 frame a second.
+- **Then speed.** The goal after that is 30 fps (the gauge below measures the menus). Gameplay, audio and anything playable come after.
+- **No dates.** We post progress here as it's measured, not before.
 
 <p align="center">
-<img src="docs/banana/journey.svg" width="49%" alt="Where we are: boots, first picture, controller and menus done; loading screens now; gameplay and 30 fps ahead">
+<img src="docs/banana/journey.svg" width="49%" alt="Where we are: boots, first picture, controller, menus and loading screens done; loading the world now; first world picture and 30 fps ahead">
 <img src="docs/banana/fps_goal.svg" width="49%" alt="Road to 30 fps: 8.5 of 30 fps on the menus, 28 percent">
 </p>
 
@@ -36,8 +51,11 @@ own runtime and shader fixes. It does not contain, download or share any game fi
 | ✅ | First-run screens and logo | done 2026-11-25 |
 | ✅ | Loading screens with their artwork | done 2026-11-25 |
 | ✅ | Banana window with a live fps counter | done 2026-11-25 |
-| 🔧 | Get past the loading screens | in progress |
-| ⬜ | Gameplay on screen | next |
+| ✅ | A full 15-minute run without a crash | done 2026-11-26 |
+| ✅ | Past the loading screens, into the world load | done 2026-11-26 |
+| 🔧 | Get through the world load (graphics card hang at world start) | in progress |
+| ⬜ | **First world picture** | next |
+| ⬜ | Gameplay on screen | after that |
 | ⬜ | 30 fps | later |
 | ⬜ | Audio | later |
 
