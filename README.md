@@ -26,6 +26,8 @@ own runtime and shader fixes. It does not contain, download or share any game fi
 - **Then speed.** The goal after that is 30 fps (the gauge below measures the menus). Gameplay, audio and anything playable come after.
 - **No dates.** We post progress here as it's measured, not before.
 
+How we got here, problem by problem: **[DEVLOG.md](DEVLOG.md)**.
+
 <p align="center">
 <img src="docs/banana/journey.svg" width="49%" alt="Where we are: boots, first picture, controller, menus and loading screens done; loading the world now; first world picture and 30 fps ahead">
 <img src="docs/banana/fps_goal.svg" width="49%" alt="Road to 30 fps: 8.5 of 30 fps on the menus, 28 percent">
