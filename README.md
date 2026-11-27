@@ -1,4 +1,5 @@
 <p align="center"><img src="docs/banana/banner.svg" alt="Banana Theft Auto" width="100%"></p>
+<p align="center"><a href="https://discord.gg/ppNRZDSda"><img src="docs/banana/discord_banner.svg" alt="Watch the dev live: join the Part Time Heroes on Discord (discord.gg/ppNRZDSda)" width="100%"></a></p>
 
 # Banana Theft Auto
 
