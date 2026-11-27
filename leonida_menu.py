@@ -19,6 +19,7 @@ import time
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 import make_game as mg  # noqa: E402  (importing it runs nothing; main() is guarded)
+import bta_update  # noqa: E402  (Banana Theft Auto: Update)
 
 DATA = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "Leonida")
 SETTINGS = os.path.join(DATA, "settings.json")
@@ -1216,6 +1217,106 @@ def install_flow(st, preset=None):
         return
     fix_stale_cmake_cache(stages)
     code, log_path = do_build(st, stages, wav)
+    note_built(st, stages, code)
+    result_screen(st, code, log_path)
+
+
+def note_built(st, stages, code):
+    """After a finished build, remembers which commit its shader and runtime steps were built from (for Update)."""
+    if code != 0:
+        return
+    info = bta_update.commit_info(ROOT) if bta_update.is_checkout(ROOT) else None
+    if not info:
+        return
+    built = st.setdefault("built", {})
+    for step in ("shaders", "runtime"):
+        if step in stages.split(","):
+            built[step] = info["hash"]
+    save(st)
+
+
+def screen_update(st):
+    heading("Update Banana Theft Auto")
+    note("Compares this folder with the Banana Theft Auto repository on GitHub, shows what is new, and updates it. "
+         "Only code changes are downloaded (usually a few MB). Nothing changes until you say yes.")
+    if not yesno("Check GitHub for updates now", True):
+        return
+    p("   " + paint("Checking...", 245))
+    s = bta_update.scan(ROOT, st.get("built"))
+    if s["kind"] == "no-git":
+        line("bad", "Updating needs git, which is not installed.",
+             "Check this PC > tools offers it, or: winget install --id Git.Git -e")
+        note("Or download the latest version as a ZIP from " + bta_update.REPO_PAGE + " (Code > Download ZIP).")
+        pause()
+        return
+    if s["kind"] == "no-checkout":
+        line("warn", "This folder was not downloaded with git (probably a ZIP), so it cannot update itself.")
+        note("Get the latest ZIP from " + bta_update.REPO_PAGE + ", or clone it once with git so Update works from then on:")
+        note("git clone " + bta_update.REPO_URL)
+        pause()
+        return
+    cur, latest = s["current"], s["latest"]
+    if cur:
+        line("ok", "Your version:   %s  (%s)" % (cur["short"], cur["date"]), shorten(cur["subject"], 50))
+    if s["error"]:
+        line("warn", "Could not reach GitHub.", shorten(s["error"], 70))
+    elif latest:
+        line("ok" if not s["behind"] else "warn", "Latest version: %s  (%s)" % (latest["short"], latest["date"]),
+             "you are up to date" if not s["behind"] else "%d update(s) available" % s["behind"])
+    for step in s["rebuild"]:
+        line("warn", "Your built %s is older than this folder's code." % ("shaders" if step == "shaders" else "game runtime"),
+             "rebuild it below")
+    steps = list(s["rebuild"])
+    if s["behind"]:
+        heading("What's new")
+        for short, date, subject in s["new_commits"][:15]:
+            p("   " + paint(short, TEAL) + "  " + paint(date, 245) + "  " + shorten(subject, T.width() - 30))
+        if len(s["new_commits"]) > 15:
+            p("   " + paint("... and %d more" % (len(s["new_commits"]) - 15), 245))
+        p()
+        if s["steps"]:
+            note("This update changes: " + " and ".join("the shaders (a longer rebuild)" if x == "shaders" else
+                                                         "the game runtime (a quick rebuild)" for x in s["steps"]) + ".")
+        else:
+            note("This update needs no rebuild.")
+        if s["ahead"]:
+            line("bad", "This folder has %d commit(s) of its own, so it cannot be updated automatically." % s["ahead"])
+            pause()
+            return
+        keep = False
+        if s["local"]:
+            line("warn", "You have changed %d file(s) here:" % len(s["local"]), ", ".join(s["local"][:4]))
+            keep = yesno("Set your changes aside, update, then put them back", True)
+            if not keep:
+                pause()
+                return
+        if not yesno("Update now", True):
+            return
+        ok, msg = bta_update.update(ROOT, keep_local=keep)
+        line("ok" if ok else "bad", msg)
+        if not ok:
+            pause()
+            return
+        steps = [x for x in ("shaders", "runtime") if x in steps or x in s["steps"]]
+        note("The menu itself may have changed: close it and start Leonida.bat again when you are done here.")
+    if not steps:
+        if not s["behind"]:
+            note("Nothing to do.")
+        pause()
+        return
+    if not st.get("game"):
+        note("Choose Start to build: no game copy is set yet.")
+        pause()
+        return
+    stages = "check," + ",".join(steps)
+    if not yesno("Rebuild now (%s)" % " and ".join(steps), True):
+        note("You can rebuild later with Start (Runtime only, or Run the port when the shaders changed).")
+        pause()
+        return
+    step_sdl3(st, stages)
+    fix_stale_cmake_cache(stages)
+    code, log_path = do_build(st, stages, False)
+    note_built(st, stages, code)
     result_screen(st, code, log_path)
 
 
@@ -1335,6 +1436,7 @@ def help_screen():
                  "Find my game copy recognises the package by its files, so it works wherever the copy is, even in a folder you point at by mistake.",
                  "Stopping is safe. Press Ctrl+C during a build; finished steps are skipped when you start again.",
                  "Run the game starts the built port with logging. Restore its window, wait for the button prompts, press A.",
+                 "Update checks GitHub for a newer version, updates this folder (keeping your own edits) and rebuilds only what changed.",
                  "After pulling new code, Start with Runtime only rebuilds gta6rt.exe without redoing the shaders.",
                  "Logs are in " + LOG_DIR + ". Your choices are in " + SETTINGS + " (paths and numbers only).",
                  "The same build runs from a script: py -I make_game.py --game <folder> --stages check,shaders,runtime (see --help).",
@@ -1347,7 +1449,8 @@ def help_screen():
 
 HOME = [[("1", "Start", "your game, then build"), ("s", "Shaders only", "run just the shader step"),
          ("r", "Run the game", "start the built port and log it")],
-        [("2", "Check this PC", "hardware, drives, tools"), ("3", "Find my game copy", "I look for it for you")],
+        [("u", "Update", "get the latest version from GitHub"), ("2", "Check this PC", "hardware, drives, tools"),
+         ("3", "Find my game copy", "I look for it for you")],
         [("4", "What can be installed", "every tool and its source"), ("5", "Settings", "folders and speed"), ("6", "Help", "")],
         [("q", "Quit", "")]]
 
@@ -1369,6 +1472,8 @@ def home():
                 install_flow(st, preset="3")
             elif k == "r":
                 screen_run(st)
+            elif k == "u":
+                screen_update(st)
             elif k == "2":
                 screen_check(st)
             elif k == "3":
@@ -1414,6 +1519,8 @@ def main():
     try:
         if "--preview" in sys.argv:
             preview()
+        elif "--update" in sys.argv:
+            screen_update(load())
         elif "--pc" in sys.argv:
             screen_check(load())
         elif "--find" in sys.argv:

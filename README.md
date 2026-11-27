@@ -116,6 +116,8 @@ nothing from upstream Leonida is merged automatically.
 ## What this repository adds
 
 - `Leonida.bat` and `leonida_menu.py`: the guided menu. Details and screenshots: **[README_MENU.md](README_MENU.md)**.
+- **Update** in the menu (`bta_update.py`): checks your copy against this repository, lists what's new, updates it
+  safely (your own edits are kept) and rebuilds only what changed.
 - `docs/banana/`, `docs/menu/` and `docs/screenshots/`: artwork and pictures.
 - Our own runtime and build changes. Everything else is Leonida, with its full history.
 
@@ -126,6 +128,8 @@ git clone --recursive https://github.com/Click2x/bananatheftauto
 ```
 
 Then double-click `Leonida.bat` (needs Python 3.12 or newer; everything else is offered inside the menu).
+To get the latest version later, choose **Update** in the menu. A copy downloaded as a ZIP can't update itself; clone it
+with git once, as above.
 
 ## Credits
 

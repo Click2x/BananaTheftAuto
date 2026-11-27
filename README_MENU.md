@@ -48,6 +48,7 @@ shader fix below is separate and optional; the menu works without it.)
 | **Start** | The guided flow: notice, game copy, what to build and where, tools, summary, build. |
 | **Shaders only** (key `s`) | Runs just the shader step with your saved game, output and work folders, so all your parallel jobs go to it. Finished work is skipped. |
 | **Run the game** (key `r`) | Starts the built port with logging (`scripts\run_logged.ps1 -Experiments -TitleWindow`), optionally with the keyboard as a pad, for as many minutes as you choose, then prints the run's summary. Says what to do on screen: restore the window, wait for the prompts, press A. |
+| **Update** (key `u`) | Checks this folder against the Banana Theft Auto repository on GitHub and lists the new commits. Updates only by moving forward (your own edits are set aside and put back; your own commits are never touched) and offers to rebuild just the steps the update changed. Also warns when your built runtime or shaders are older than the code. A ZIP download can't update itself: clone with git once. |
 | **Check this PC** | System, CPU, RAM, graphics card, Vulkan driver, free space on every drive, and a checklist of tools. |
 | **Find my game copy** | Looks for the package for you (see below). |
 | **What can be installed** | Lists each installable tool, what needs it and where it comes from. |
