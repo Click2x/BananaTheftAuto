@@ -7,6 +7,19 @@ What we've posted to the community, newest first. Status only: what changed and 
 
 ---
 
+## 27 Nov 2026 (morning): The opening credits come to life
+
+<p align="center">
+<img src="docs/screenshots/2026-11-27-skyline-and-trees.png" width="49%" alt="A figure, trees and the skyline">
+<img src="docs/screenshots/2026-11-27-rooftop-credits.png" width="49%" alt="Credits over a rooftop at night">
+</p>
+
+- ✅ The opening credits scenes now draw much more fully: rooftops, the skyline, trees, interiors, clouds
+- ✅ Another 30-minute run without a crash
+- 🔧 Working on now: bright lights that bloom until the frame turns white, and sparkly characters
+
+---
+
 ## 27 Nov 2026 (morning): First character on screen
 
 <p align="center"><img src="docs/screenshots/2026-11-27-first-character.png" width="80%" alt="The first character drawn during the opening credits"></p>

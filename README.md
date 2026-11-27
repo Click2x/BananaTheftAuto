@@ -14,12 +14,14 @@ own runtime and shader fixes. It does not contain, download or share any game fi
 
 > **Status (2026-11-27): early, the game does not play yet, but the world is on screen.** On the author's PC (RTX 3090) the
 > recompiled title boots, goes through its menus and loading screens and plays its opening cinematic: sky, clouds, the sun, the city
-> lights, buildings, poles, ground, and now the first character in the opening credits. Runs last 30 minutes and more without crashing, and shaders are prepared up front behind a
-> loading screen. The picture is still rough: some frames flash white or black, and frames take seconds each.
+> lights, buildings, poles, ground, characters, rooftops, interiors and the opening credits. Runs last 30 minutes and more
+> without crashing, and shaders are prepared up front behind a loading screen. The picture is still rough: bright lights
+> bloom until the frame turns white, characters sparkle, and frames take seconds each.
 
 ### What we're working on now
 
-- **A clean picture.** Frames still switch between a correct image, a white blow-out and black. That's the current focus.
+- **A clean picture.** Most of the opening scenes now draw. Bright lights still bloom until the frame turns white, and
+  characters sparkle. That's the current focus.
 - **The rest of the world.** Water, ground and more of the world's drawing are coming through as we fix the parts of the game's
   drawing that were being skipped.
 
@@ -35,6 +37,14 @@ How we got here, problem by problem: **[DEVLOG.md](DEVLOG.md)**. Community updat
 <img src="docs/banana/journey.svg" width="49%" alt="Where we are: boots, first picture, controller, menus, loading screens and the first world picture done; cleaning up the picture now; 30 fps ahead">
 <img src="docs/banana/fps_goal.svg" width="49%" alt="Road to 30 fps: 8.5 of 30 fps on the menus, 28 percent">
 </p>
+
+<p align="center">
+<img src="docs/screenshots/2026-11-27-skyline-and-trees.png" width="49%" alt="Opening scene: a figure, trees and the city lights on the skyline">
+<img src="docs/screenshots/2026-11-27-rooftop-credits.png" width="49%" alt="Opening credits over a rooftop at night">
+<img src="docs/screenshots/2026-11-27-city-at-night.png" width="49%" alt="A figure on a rooftop above the city at night">
+<img src="docs/screenshots/2026-11-27-cloudy-sky.png" width="49%" alt="Opening credits under a cloudy sky with poles on the horizon">
+</p>
+<p align="center"><sub>2026-11-27: the opening credits scenes now draw much more fully.</sub></p>
 
 <p align="center">
 <img src="docs/screenshots/2026-11-27-first-character.png" width="98%" alt="The opening credits with the first character drawn in the world">
@@ -83,6 +93,7 @@ How we got here, problem by problem: **[DEVLOG.md](DEVLOG.md)**. Community updat
 | ✅ | Shaders prepared up front behind a loading screen | done 2026-11-26 |
 | ✅ | Buildings, poles and ground drawing | done 2026-11-27 |
 | ✅ | First character on screen, 30-minute run with no crash | done 2026-11-27 |
+| ✅ | Opening credits scenes drawing (rooftops, skyline, interiors) | done 2026-11-27 |
 | 🔧 | A clean picture (no white or black flashes) | in progress |
 | ⬜ | Fully drawn opening scene | next |
 | ⬜ | Gameplay on screen | after that |
