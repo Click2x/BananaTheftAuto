@@ -1,4 +1,5 @@
 #pragma once
+#include "address_guard.h"
 #include "vulkan_gpu_labels.h"
 
 // The execution side of the D3D12 layer, without COM: the per-device Vulkan context (resources, layout tracker,
@@ -143,6 +144,7 @@ struct VulkanDeviceFunctions {
 #define LEONIDA_VK_LOAD(name) name = reinterpret_cast<PFN_##name>(leonida::device_proc_or_khr(get, device, #name));
         LEONIDA_VK_DEVICE_FUNCTIONS(LEONIDA_VK_LOAD)
 #undef LEONIDA_VK_LOAD
+        leonida::address_guard::wrap(vkCreateBuffer, vkDestroyBuffer, vkGetBufferDeviceAddress);
         return vkCreateCommandPool && vkDestroyCommandPool && vkAllocateCommandBuffers && vkResetCommandBuffer &&
                vkBeginCommandBuffer && vkEndCommandBuffer && vkQueueSubmit && vkQueueWaitIdle && vkCreateSemaphore &&
                vkDestroySemaphore && vkGetSemaphoreCounterValue && vkWaitSemaphores && vkSignalSemaphore &&

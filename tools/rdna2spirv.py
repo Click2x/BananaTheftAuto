@@ -106,6 +106,7 @@ PC_TAIL_SET, PC_TAIL_BINDING = 1, 0
 # can use there.
 F16_HALVES = False
 F16_HALF_TOP = 29
+ADDRESS_GUARD = False   # --address-guard: raw memory accesses check the runtime's page table (Gen.guard_function)
 OPT_SPIRV = False       # --opt: run tools/spirv_opt.py basic-block peephole pass on emitted SPIR-V (#884)
 
 
@@ -421,6 +422,7 @@ class Gen:
         self.blocks = []      # per basic block: list of SPIR-V lines (dispatch-loop form), empty = straight-line
         self.succ = []        # per basic block: the blocks it can go to next (none = the program ends there)
         self.desc_fn = None   # lines of the descriptor-lookup function, once an instruction needs it
+        self.guard_fn = None  # lines of %guard_fn (--address-guard), once host_addr needs it
         self.tbuffer_norm_fns: dict[int, list[str]] = {}  # one exact quotient per used magnitude width
         self.fmt_fn = None    # lines of the typed-buffer format-decode function, once a dynamic-format load needs it
         self.fmt_norm_fn = None    # lines of the shared exact norm quotient for a run-time width (SHADER-849)
@@ -1589,10 +1591,88 @@ class Gen:
         high, offset, r = (self.tmp() for _ in range(3))
         self.emit(f"{high} = OpShiftLeftLogical %ulong {xbox_va} {shift}")
         self.emit(f"{offset} = OpShiftRightArithmetic %ulong {high} {shift}")
-        self.emit(f"{r} = OpIAdd %ulong %heap_base {offset}")
+        if ADDRESS_GUARD:
+            self.guard_function()
+            self.emit(f"{r} = OpFunctionCall %ulong %guard_fn %heap_base {offset}")
+        else:
+            self.emit(f"{r} = OpIAdd %ulong %heap_base {offset}")
         self.uses_heap = True
         self.cu(1), self.cu(2)        # member indices of the push-constant block, declared before assembly
         return r
+
+    def guard_function(self):
+        """--address-guard (Banana Theft Auto; runtime/src/address_guard.h holds the layout): %guard_fn(heap_base,
+        offset) returns heap_base + offset when the offset is in the arena, when the runtime has not set the guard up
+        (no magic in the header), or when its 4 KiB page is marked backed in the runtime's page table; otherwise the
+        address of the arena's zeroed sink, so a stale pointer reads zeros instead of faulting the GPU."""
+        if self.guard_fn is not None:
+            return
+        cl, cu = self.cl, self.cu
+        hdr = 0x70000
+        L = ["%guard_fn = OpFunction %ulong None %fn_guard",
+             "%gd_base = OpFunctionParameter %ulong", "%gd_off = OpFunctionParameter %ulong", "%gd_entry = OpLabel"]
+
+        def word(name, at):
+            L.extend([f"%{name}_a = OpIAdd %ulong %gd_base {cl(at)}",
+                      f"%{name}_p = OpConvertUToPtr %_ptr_PSB_uint %{name}_a",
+                      f"%{name} = OpLoad %uint %{name}_p Aligned 4"])
+
+        def u64(name, lo, hi):
+            L.extend([f"%{name}_lo = OpUConvert %ulong %{lo}", f"%{name}_hi = OpUConvert %ulong %{hi}",
+                      f"%{name}_sh = OpShiftLeftLogical %ulong %{name}_hi {cl(32)}",
+                      f"%{name} = OpBitwiseOr %ulong %{name}_sh %{name}_lo"])
+
+        word("gd_magic", hdr)
+        word("gd_size_w0", hdr + 16)
+        word("gd_size_w1", hdr + 20)
+        u64("gd_size", "gd_size_w0", "gd_size_w1")
+        L += [f"%gd_on = OpIEqual %bool %gd_magic {cu(0x47414E42)}",
+              f"%gd_m48 = OpBitwiseAnd %ulong %gd_off {cl((1 << 48) - 1)}",
+              "%gd_in = OpULessThan %bool %gd_m48 %gd_size",
+              "%gd_off_guard = OpLogicalNot %bool %gd_on",
+              "%gd_pass = OpLogicalOr %bool %gd_in %gd_off_guard",
+              "OpSelectionMerge %gd_merge None",
+              "OpBranchConditional %gd_pass %gd_merge %gd_check",
+              "%gd_check = OpLabel"]
+        word("gd_tab_w0", hdr + 8)
+        word("gd_tab_w1", hdr + 12)
+        u64("gd_toff", "gd_tab_w0", "gd_tab_w1")
+        L += ["%gd_tab = OpIAdd %ulong %gd_base %gd_toff",
+              f"%gd_chunk_s = OpShiftRightLogical %ulong %gd_m48 {cl(32)}",
+              f"%gd_chunk = OpBitwiseAnd %ulong %gd_chunk_s {cl(0xFFFF)}",
+              f"%gd_l1_o = OpShiftLeftLogical %ulong %gd_chunk {cl(2)}",
+              "%gd_l1_a = OpIAdd %ulong %gd_tab %gd_l1_o",
+              "%gd_l1_p = OpConvertUToPtr %_ptr_PSB_uint %gd_l1_a",
+              "%gd_l1 = OpLoad %uint %gd_l1_p Aligned 4",
+              f"%gd_has = OpINotEqual %bool %gd_l1 {cu(0)}",
+              f"%gd_l1m = OpISub %uint %gd_l1 {cu(1)}",
+              f"%gd_blk = OpSelect %uint %gd_has %gd_l1m {cu(0)}",
+              "%gd_blk64 = OpUConvert %ulong %gd_blk",
+              f"%gd_blk_o = OpIMul %ulong %gd_blk64 {cl(0x20000)}",
+              f"%gd_page_s = OpShiftRightLogical %ulong %gd_m48 {cl(12)}",
+              f"%gd_page = OpBitwiseAnd %ulong %gd_page_s {cl(0xFFFFF)}",
+              f"%gd_word_i = OpShiftRightLogical %ulong %gd_page {cl(5)}",
+              f"%gd_word_o = OpShiftLeftLogical %ulong %gd_word_i {cl(2)}",
+              f"%gd_l2_0 = OpIAdd %ulong %gd_tab {cl(0x40000)}",
+              "%gd_l2_1 = OpIAdd %ulong %gd_l2_0 %gd_blk_o",
+              "%gd_l2_a = OpIAdd %ulong %gd_l2_1 %gd_word_o",
+              "%gd_l2_p = OpConvertUToPtr %_ptr_PSB_uint %gd_l2_a",
+              "%gd_bits = OpLoad %uint %gd_l2_p Aligned 4",
+              "%gd_bitn64 = OpBitwiseAnd %ulong %gd_page " + cl(31),
+              "%gd_bitn = OpUConvert %uint %gd_bitn64",
+              "%gd_bit_s = OpShiftRightLogical %uint %gd_bits %gd_bitn",
+              f"%gd_bit = OpBitwiseAnd %uint %gd_bit_s {cu(1)}",
+              f"%gd_set = OpINotEqual %bool %gd_bit {cu(0)}",
+              "%gd_okc = OpLogicalAnd %bool %gd_has %gd_set",
+              "OpBranch %gd_merge",
+              "%gd_merge = OpLabel",
+              "%gd_ok = OpPhi %bool %true %gd_entry %gd_okc %gd_check",
+              f"%gd_low = OpBitwiseAnd %ulong %gd_off {cl(0xFFF)}",
+              f"%gd_sink = OpIAdd %ulong %gd_low {cl(0x71000)}",
+              "%gd_sel = OpSelect %ulong %gd_ok %gd_off %gd_sink",
+              "%gd_res = OpIAdd %ulong %gd_base %gd_sel",
+              "OpReturnValue %gd_res", "OpFunctionEnd"]
+        self.guard_fn = L
 
     def tof(self, u):
         """The %float with the bits of %uint u. Bitcasting a tou result back gives tou's argument (Gen.bitcast_from),
@@ -16080,6 +16160,8 @@ def assemble(gen):
         # structure, so it never repeats another function type in the module (SPIR-V forbids that).
         types.append("%fn_fmt_dec = OpTypeFunction %uint %uint %v4uint_fmt")
         types.append("%fn_fmt_norm = OpTypeFunction %uint %uint %uint")
+    if gen.guard_fn:
+        types.append("%fn_guard = OpTypeFunction %ulong %ulong %ulong")
     if gen.fmt_enc_fn:
         types.append("%fn_fmt_encode = OpTypeFunction %v4uint_fmt " + " ".join(["%uint"] * 29))
     for arity, fn_type in sorted(gen.x_round_fn_types.items()):
@@ -16501,7 +16583,7 @@ def assemble(gen):
         fn.append(f"{p} = OpAccessChain %_ptr_Function_uint {arr} {gen.cu(r)}")
     # Spill pointers last: a spilled value's type may be declared anywhere above.
     types += [f"{ptr} = OpTypePointer Function {t}" for t, ptr in gen.x_ptr_types.items()]
-    helpers = (gen.desc_fn or []) + (gen.fmt_fn or []) + (gen.fmt_enc_fn or [])
+    helpers = (gen.desc_fn or []) + (gen.fmt_fn or []) + (gen.fmt_enc_fn or []) + (gen.guard_fn or [])
     for function in gen.tbuffer_norm_fns.values():
         helpers.extend(function)
     for function in gen.x_round_fns.values():
@@ -19561,6 +19643,8 @@ def main():
                          "for devices whose maxPushConstantsSize is below 144")
     ap.add_argument("--descriptor-hash", choices=DESCRIPTOR_HASHES, default="fnv1a",
                     help="bindless descriptor table hash shared with the runtime (default: fnv1a)")
+    ap.add_argument("--address-guard", action="store_true",
+                    help="check every heap_base access against the runtime's page table (LEONIDA_ADDRESS_GUARD)")
     ap.add_argument("--loop-limit", type=spirv_loop_guard.parse_limit, default=spirv_loop_guard.DEFAULT_LIMIT,
                     help="maximum visits to each loop header, including dispatch loops (default %(default)s, 0 disables)")
     ap.add_argument("--max-structured-depth", type=_depth_arg, default=MAX_STRUCTURED_DEPTH, metavar="N",
@@ -19591,6 +19675,8 @@ def main():
     MAX_SHARED_BYTES = a.max_shared_memory
     DESCRIPTOR_HASH = a.descriptor_hash
     LOOP_LIMIT = a.loop_limit
+    global ADDRESS_GUARD
+    ADDRESS_GUARD = a.address_guard
     MAX_STRUCTURED_DEPTH = a.max_structured_depth
     global STRUCTURED, WAVE64_EMULATE, WAVE64_GRAPHICS, BARY_FALLBACK, TEXEL_OFFSET_FALLBACK, MESH_COMPUTE, FMA_KHR, SHADER_CLOCK, F16_HALVES, OPT_SPIRV
     global PC_TAIL_UBO
