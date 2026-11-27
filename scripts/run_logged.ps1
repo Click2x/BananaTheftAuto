@@ -28,6 +28,7 @@ param(
                                                          # below and open a window for PresentX (implies -SkipInt3)
     [switch]$TitleWindow,                                # with -Experiments: present into the title's own window ("Americas",
                                                          # class sgaWindowClass) instead of opening a second one
+    [switch]$NoD3D12Trace,                               # leave out --trace-d3d12 (one log line per D3D12 call): faster runs
     [string[]]$ExtraArgs = @()
 )
 
@@ -63,7 +64,8 @@ if ($Experiments) {
     if ($TitleWindow) { $env:LEONIDA_XS_WINDOW = 'title' }
 }
 
-$argList = @('--run', "`"$GameExe`"", '--trace-d3d12', '--trace', "`"$trace`"", '--overlay', "`"$Overlay`"") + $ExtraArgs
+$argList = @('--run', "`"$GameExe`"") + $(if ($NoD3D12Trace) { @() } else { @('--trace-d3d12') }) +
+           @('--trace', "`"$trace`"", '--overlay', "`"$Overlay`"") + $ExtraArgs
 $started = Get-Date
 $p = Start-Process -FilePath $rt -ArgumentList $argList -PassThru -RedirectStandardOutput $rawOut -RedirectStandardError $rawErr -WindowStyle Minimized
 $null = $p.Handle    # keeps the exit code readable after the process ends (a known .NET quirk with redirected output)
