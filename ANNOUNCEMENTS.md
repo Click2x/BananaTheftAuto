@@ -7,6 +7,17 @@ What we've posted to the community, newest first. Status only: what changed and 
 
 ---
 
+## 27 Nov 2026 (midday): First in-game view
+
+<p align="center"><img src="docs/screenshots/2026-11-27-player-in-the-street.png" width="80%" alt="The player standing in a daytime street"></p>
+
+- ✅ The first in-game view: the player standing in a daytime street, with buildings, poles and a tower
+- ✅ Every world shader the game asks for is now in, with no crash in a 30-minute run
+- ✅ New in the menu: **Update**, to get the latest version in a few clicks ([UPDATING.md](UPDATING.md))
+- 🔧 Working on now: lighting that blows out to white within seconds, and sparkly characters
+
+---
+
 ## 27 Nov 2026 (morning): The opening credits come to life
 
 <p align="center">

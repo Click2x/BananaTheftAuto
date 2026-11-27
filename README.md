@@ -14,7 +14,8 @@ own runtime and shader fixes. It does not contain, download or share any game fi
 
 > **Status (2026-11-27): early, the game does not play yet, but the world is on screen.** On the author's PC (RTX 3090) the
 > recompiled title boots, goes through its menus and loading screens and plays its opening cinematic: sky, clouds, the sun, the city
-> lights, buildings, poles, ground, characters, rooftops, interiors and the opening credits. Runs last 30 minutes and more
+> lights, buildings, poles, ground, characters, rooftops, interiors, the opening credits, and now the first in-game view:
+> the player standing in a daytime street. Runs last 30 minutes and more
 > without crashing, and shaders are prepared up front behind a loading screen. The picture is still rough: bright lights
 > bloom until the frame turns white, characters sparkle, and frames take seconds each.
 
@@ -37,6 +38,11 @@ How we got here, problem by problem: **[DEVLOG.md](DEVLOG.md)**. Community updat
 <img src="docs/banana/journey.svg" width="49%" alt="Where we are: boots, first picture, controller, menus, loading screens and the first world picture done; cleaning up the picture now; 30 fps ahead">
 <img src="docs/banana/fps_goal.svg" width="49%" alt="Road to 30 fps: 8.5 of 30 fps on the menus, 28 percent">
 </p>
+
+<p align="center">
+<img src="docs/screenshots/2026-11-27-player-in-the-street.png" width="98%" alt="The player character standing in a daytime street, with buildings, poles and a tower">
+</p>
+<p align="center"><sub>2026-11-27: the first in-game view. The player stands in a daytime street. Lighting still blows out to white within seconds.</sub></p>
 
 <p align="center">
 <img src="docs/screenshots/2026-11-27-skyline-and-trees.png" width="49%" alt="Opening scene: a figure, trees and the city lights on the skyline">
@@ -94,6 +100,7 @@ How we got here, problem by problem: **[DEVLOG.md](DEVLOG.md)**. Community updat
 | ✅ | Buildings, poles and ground drawing | done 2026-11-27 |
 | ✅ | First character on screen, 30-minute run with no crash | done 2026-11-27 |
 | ✅ | Opening credits scenes drawing (rooftops, skyline, interiors) | done 2026-11-27 |
+| ✅ | **First in-game view**: the player in a daytime street | done 2026-11-27 |
 | 🔧 | A clean picture (no white or black flashes) | in progress |
 | ⬜ | Fully drawn opening scene | next |
 | ⬜ | Gameplay on screen | after that |
