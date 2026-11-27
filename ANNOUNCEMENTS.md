@@ -7,6 +7,16 @@ What we've posted to the community, newest first. Status only: what changed and 
 
 ---
 
+## 27 Nov 2026 (morning): First character on screen
+
+<p align="center"><img src="docs/screenshots/2026-11-27-first-character.png" width="80%" alt="The first character drawn during the opening credits"></p>
+
+- ✅ The first character is drawn in the world, during the opening credits
+- ✅ A 30-minute test run with no crash and no graphics card reset
+- 🔧 Working on now: lighting that is far too bright, and frames that flash white or black
+
+---
+
 ## 27 Nov 2026: Project update
 
 <p align="center"><img src="docs/updates/2026-11-27-update-card.png" width="80%" alt="Project update card, 27 November 2026"></p>
