@@ -46,6 +46,7 @@
 #include "../src/pipeline_cache_file.h"
 #include "../src/pipeline_profile.h"
 #include "../src/submit_phases.h"
+#include "../src/heavy_pipeline_cache.h"
 #include "../src/pipeline_cache_store.h"
 #include "../src/conservative_raster.h"
 #include "../src/resource_detile.h"
@@ -64,6 +65,7 @@
 #include "../src/title_window_plan.h"
 #include "../src/vulkan_present.h"
 #include "../src/vulkan_device_filter.h"
+#include "../src/host_image_copy_policy.h"
 #include "../src/vulkan13_features.h"
 #include "../src/vulkan_index_view.h"
 #include "d3d12_compute_input_probe.h"
@@ -1295,6 +1297,30 @@ std::filesystem::path pipeline_cache_session_path() {
     return path;
 }
 
+// The pipelines the offline seed does not have, kept next to it and written while the game runs
+// (src/heavy_pipeline_cache.h).
+std::filesystem::path pipeline_cache_heavy_path() {
+    std::filesystem::path path = pipeline_cache_path();
+    if (!path.empty()) path.replace_filename(L"pipeline_cache.heavy.bin");
+    return path;
+}
+
+// LEONIDA_HEAVY_PIPELINE_CACHE_MS: a compile at least this long schedules a write of the heavy cache; 0 turns the
+// heavy cache off. One line for a value that is not a number.
+std::uint32_t heavy_pipeline_cache_ms() {
+    static const std::uint32_t ms = [] {
+        char text[32] = {};
+        size_t length = 0;
+        const bool present = getenv_s(&length, text, "LEONIDA_HEAVY_PIPELINE_CACHE_MS") == 0 && length > 1;
+        const auto threshold = leonida::heavy_pipeline_cache::parse_threshold(present ? text : "");
+        if (!threshold.valid)
+            std::fprintf(stderr, "[rt] d3d12: LEONIDA_HEAVY_PIPELINE_CACHE_MS=%s is not a number of milliseconds; "
+                                 "using %u\n", text, threshold.ms);
+        return threshold.ms;
+    }();
+    return ms;
+}
+
 // LEONIDA_PIPELINE_CACHE_BYTES, in bytes; 0 turns the session file off. One line for a value that is not a number.
 std::size_t pipeline_cache_save_limit() {
     char text[32] = {};
@@ -1514,6 +1540,64 @@ void save_session_pipeline_cache(const leonida::VulkanDeviceFunctions& vk, VkDev
                      compile_us()-filled, int(ok), int(result));
     if (ok) std::fprintf(stderr, "[rt] d3d12: wrote %zu bytes to pipeline_cache.session.bin\n", written);
     else std::fprintf(stderr, "[rt] d3d12: pipeline cache snapshot incomplete (%d); previous session retained\n", int(result));
+}
+
+// The heavy cache, seeded from pipeline_cache.heavy.bin when it is there and made for this device; empty otherwise.
+VkPipelineCache create_heavy_pipeline_cache(const leonida::VulkanDeviceFunctions& vk, VkDevice device,
+                                            const leonida::cached_pso::Identity& identity) {
+    const auto path = pipeline_cache_heavy_path();
+    clean_stale_cache_files(path);
+    VkPipelineCache cache = VK_NULL_HANDLE;
+    {
+        const PipelineCacheSeed seed(path);
+        if (seed.data() && seed.compatible(identity)) {
+            const VkPipelineCacheCreateInfo create{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO, nullptr, 0,
+                                                   seed.size(), seed.data()};
+            if (vk.vkCreatePipelineCache(device, &create, nullptr, &cache) == VK_SUCCESS) {
+                std::fprintf(stderr, "[rt] d3d12: loaded %zu bytes from pipeline_cache.heavy.bin\n", seed.size());
+                return cache;
+            }
+            std::fprintf(stderr, "[rt] d3d12: Vulkan declined pipeline_cache.heavy.bin; starting it empty\n");
+        } else if (seed.data()) {
+            std::fprintf(stderr, "[rt] d3d12: pipeline_cache.heavy.bin does not match this Vulkan device; starting "
+                                 "it empty\n");
+        }
+    }
+    const VkPipelineCacheCreateInfo create{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+    if (vk.vkCreatePipelineCache(device, &create, nullptr, &cache) != VK_SUCCESS) return VK_NULL_HANDLE;
+    return cache;
+}
+
+// Writes the heavy cache whole: a staging file renamed over pipeline_cache.heavy.bin, so the file on disk is always
+// a complete blob. It only holds what the offline seed missed, so it has no size limit of its own.
+bool save_heavy_pipeline_cache(const leonida::VulkanDeviceFunctions& vk, VkDevice device, VkPipelineCache cache,
+                               std::uint64_t compiles, std::uint64_t hits) {
+    if (!cache || !vk.vkGetPipelineCacheData) return false;
+    const auto path = pipeline_cache_heavy_path();
+    if (path.empty()) return false;
+    const auto start = compile_us();
+    std::size_t size = 0;
+    if (vk.vkGetPipelineCacheData(device, cache, &size, nullptr) != VK_SUCCESS ||
+        size <= sizeof(VkPipelineCacheHeaderVersionOne))
+        return false;
+    CacheStagingFile staging(path, size);
+    if (!staging.data) {
+        std::fprintf(stderr, "[rt] d3d12: could not map a staging file for %zu heavy pipeline cache bytes\n", size);
+        return false;
+    }
+    auto written = size;
+    const VkResult result = vk.vkGetPipelineCacheData(device, cache, &written, staging.data);
+    const bool ok = (result == VK_SUCCESS || result == VK_INCOMPLETE) &&
+                    written > sizeof(VkPipelineCacheHeaderVersionOne) && staging.publish(path, written);
+    if (ok)
+        std::fprintf(stderr, "[rt] d3d12: wrote %zu bytes to pipeline_cache.heavy.bin in %.1f s (%llu slow builds "
+                             "and %llu other builds past the offline cache so far)\n",
+                     written, double(compile_us() - start) / 1e6, static_cast<unsigned long long>(compiles),
+                     static_cast<unsigned long long>(hits));
+    else
+        std::fprintf(stderr, "[rt] d3d12: pipeline_cache.heavy.bin not written (%d); the previous file is kept\n",
+                     int(result));
+    return ok;
 }
 
 // A shader whose subgroup size cannot be had runs at the device's: inexact if it crosses the halves of a wave64 (or,
@@ -2044,6 +2128,98 @@ struct DeviceState {
         });
         // Without EXTERNALLY_SYNCHRONIZED_BIT the driver synchronizes concurrent pipeline creation using this cache.
         return pipeline_cache_handle;
+    }
+
+    // The heavy pipeline cache (src/heavy_pipeline_cache.h) and the thread that writes it.
+    std::once_flag heavy_cache_once;
+    VkPipelineCache heavy_cache_handle = VK_NULL_HANDLE;
+    std::mutex heavy_mutex;
+    std::condition_variable heavy_wake;
+    leonida::heavy_pipeline_cache::WriteSchedule heavy_schedule;  // under heavy_mutex
+    bool heavy_stop = false;                                      // under heavy_mutex
+    std::thread heavy_writer;                                     // started at the first slow build
+    std::atomic<std::uint64_t> heavy_compiles{0}, heavy_hits{0};
+
+    VkPipelineCache heavy_cache() {
+        std::call_once(heavy_cache_once, [this] {
+            if (context->vk.vkCreatePipelineCache)
+                heavy_cache_handle = create_heavy_pipeline_cache(context->vk, info.device, pso_identity);
+        });
+        return heavy_cache_handle;
+    }
+
+    // A build past the offline cache took `took_ms`: a slow one schedules a write.
+    void note_heavy_build(ULONGLONG took_ms) {
+        if (took_ms < heavy_pipeline_cache_ms()) {
+            ++heavy_hits;
+            return;
+        }
+        ++heavy_compiles;
+        std::lock_guard lock(heavy_mutex);
+        if (heavy_stop) return;
+        heavy_schedule.note_heavy(GetTickCount64());
+        if (!heavy_writer.joinable()) {
+            try {
+                heavy_writer = std::thread([this] { write_heavy_cache_loop(); });
+            } catch (const std::exception&) {
+                return;  // no thread: the cache is still written at teardown
+            }
+        }
+        heavy_wake.notify_one();
+    }
+
+    void write_heavy_cache_loop() {
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+        std::unique_lock lock(heavy_mutex);
+        while (!heavy_stop) {
+            if (!heavy_schedule.dirty()) {
+                heavy_wake.wait(lock);
+                continue;
+            }
+            const std::uint64_t now = GetTickCount64();
+            if (!heavy_schedule.due(now)) {
+                heavy_wake.wait_for(lock, std::chrono::milliseconds(heavy_schedule.due_ms() - now));
+                continue;
+            }
+            lock.unlock();
+            save_heavy_pipeline_cache(context->vk, info.device, heavy_cache_handle, heavy_compiles.load(),
+                                      heavy_hits.load());
+            lock.lock();
+            heavy_schedule.written(now);
+        }
+    }
+
+    // At device teardown, with no build running: stop the writer and write what is still unwritten.
+    void finish_heavy_cache() {
+        {
+            std::lock_guard lock(heavy_mutex);
+            heavy_stop = true;
+        }
+        heavy_wake.notify_all();
+        if (heavy_writer.joinable()) heavy_writer.join();
+        if (!heavy_cache_handle) return;
+        if (heavy_schedule.dirty() && !active_compiles.load())
+            save_heavy_pipeline_cache(context->vk, info.device, heavy_cache_handle, heavy_compiles.load(),
+                                      heavy_hits.load());
+        context->vk.vkDestroyPipelineCache(info.device, heavy_cache_handle, nullptr);
+        heavy_cache_handle = VK_NULL_HANDLE;
+    }
+
+    // vkCreate*Pipelines through `create(cache, flags)`. With the heavy cache, the offline cache is asked first
+    // without compiling; a pipeline it does not have is built against the heavy cache, which a slow build then
+    // writes back to disk. A caller that already asked for a cache-only create keeps exactly that.
+    template <class Create>
+    VkResult create_pipeline(VkPipelineCreateFlags flags, Create&& create) {
+        constexpr VkPipelineCreateFlags cache_only = VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT;
+        const VkPipelineCache corpus = pipeline_cache();
+        if (!info.heavy_pipeline_cache || (flags & cache_only)) return create(corpus, flags);
+        const VkResult cached = create(corpus, flags | cache_only);
+        if (cached != VK_PIPELINE_COMPILE_REQUIRED) return cached;
+        const VkPipelineCache heavy = heavy_cache();
+        const ULONGLONG started = GetTickCount64();
+        const VkResult built = create(heavy ? heavy : corpus, flags);
+        if (built == VK_SUCCESS && heavy) note_heavy_build(GetTickCount64() - started);
+        return built;
     }
 
     QueueClock clock;  // device-wide calibration entry points
@@ -8641,10 +8817,13 @@ public:
         // D24_UNORM_S8_UINT stored as D32_SFLOAT_S8_UINT (no D24 on the GPU): the pixel stage writes the depth D24
         // would hold, biased in D24 units and quantised (src/depth24_fragment.h, D3D-309), and the rasterizer's own
         // bias is turned off. Multisampled targets keep the old path: a FragDepth write is per pixel.
-        const bool d24_as_float = desc.DSVFormat != DXGI_FORMAT_UNKNOWN &&
-                                  vulkan_format(desc.DSVFormat, true).format == VK_FORMAT_D24_UNORM_S8_UINT &&
+        const VkFormat dsv_vk = desc.DSVFormat != DXGI_FORMAT_UNKNOWN
+                                    ? vulkan_format(desc.DSVFormat, true).format
+                                    : VK_FORMAT_UNDEFINED;
+        const bool d24_as_float = dsv_vk == VK_FORMAT_D24_UNORM_S8_UINT &&
                                   !device_.depth_usable(VK_FORMAT_D24_UNORM_S8_UINT);
-        const bool packed16_fallback=desc.DSVFormat==xbox_d16s8 && device_.depth_backing(VK_FORMAT_D16_UNORM_S8_UINT)!=VK_FORMAT_D16_UNORM_S8_UINT;
+        const bool packed16_fallback = dsv_vk == VK_FORMAT_D16_UNORM_S8_UINT &&
+                                       device_.depth_backing(VK_FORMAT_D16_UNORM_S8_UINT) != VK_FORMAT_D16_UNORM_S8_UINT;
         if(packed16_fallback && samples>1 && desc.DepthStencilState.DepthEnable) return E_NOTIMPL;
         bool depth24_fragment = (d24_as_float || packed16_fallback) && desc.DepthStencilState.DepthEnable;
         if (depth24_fragment && samples > 1) {
@@ -8961,8 +9140,11 @@ public:
                 log_once("conservative rasterization needs enabled VK_EXT_conservative_rasterization and Tier 1 precision", 1);
                 return E_INVALIDARG;
             }
-            if (r.FillMode != D3D12_FILL_MODE_SOLID ||
-                topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE) return E_INVALIDARG;
+            // A mesh pipeline has no input assembler, so its stream need not set the topology type: what is rasterized
+            // is the module's output, and it has to be triangles as well.
+            if (r.FillMode != D3D12_FILL_MODE_SOLID) return E_INVALIDARG;
+            if (mesh ? !leonida::conservative_raster::mesh_outputs_triangles(stages[0].words)
+                     : topology_type != D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE) return E_INVALIDARG;
             // Target-independent rasterization is a separate pipeline path; do not silently ignore its count.
             if (r.ForcedSampleCount)
                 return stream_unsupported("target-independent rasterization; forced sample count", int(r.ForcedSampleCount));
@@ -9621,7 +9803,12 @@ private:
         CompileTrace trace;
         trace.begin(pipeline_info, device_.info.pipeline_creation_feedback, trigger, entry->name.c_str(), 0, bytes, cache_key_);
         const leonida::pipeline_profile::DriverCall profile("cs", trigger, entry->name.c_str());
-        const VkResult created = vk.vkCreateComputePipelines(dev, cache, 1, &pipeline_info, nullptr, &built);
+        const VkPipelineCreateFlags flags = pipeline_info.flags;
+        const VkResult created = device_.create_pipeline(flags, [&](VkPipelineCache with, VkPipelineCreateFlags f) {
+            pipeline_info.flags = f;
+            built = VK_NULL_HANDLE;
+            return vk.vkCreateComputePipelines(dev, with, 1, &pipeline_info, nullptr, &built);
+        });
         profile.finish(int(created));
         trace.end(trigger, entry->name.c_str(), 0, bytes, created);
         if (big_lock.owns_lock()) big_lock.unlock();
@@ -9931,7 +10118,11 @@ private:
         trace.begin(info, device_.info.pipeline_creation_feedback, trigger, profile_shaders_.c_str(), unbound, bytes, cache_key_);
         const leonida::pipeline_profile::DriverCall profile(r.mesh ? "ms" : "vs", lazy_ ? "lazy" : "eager",
                                                          program, fragment, unbound);
-        const auto result = device_.context->vk.vkCreateGraphicsPipelines(device_.info.device, cache, 1, &info, nullptr, &pipeline);
+        const auto result = device_.create_pipeline(flags, [&](VkPipelineCache with, VkPipelineCreateFlags f) {
+            info.flags = f;
+            pipeline = VK_NULL_HANDLE;
+            return device_.context->vk.vkCreateGraphicsPipelines(device_.info.device, with, 1, &info, nullptr, &pipeline);
+        });
         if (status) *status = result;
         profile.finish(int(result));
         trace.end(trigger, profile_shaders_.c_str(), unbound, bytes, result);
@@ -12071,6 +12262,7 @@ public:
             vk.vkDestroyBuffer(state_.info.device, state_.arena.buffer, nullptr);
             if (state_.arena.memory) vk.vkFreeMemory(state_.info.device, state_.arena.memory, nullptr);
         }
+        state_.finish_heavy_cache();
         if (state_.pipeline_cache_handle) {
             // Nothing should be building into the cache now (the compiler's jobs for this device are gone, and so
             // is every PSO). If something is, its pipelines are half in the cache: keep the previous session file.
@@ -18310,8 +18502,12 @@ HRESULT create_vulkan_device_standalone(REFIID riid, void** out, QueueTestSettin
                                       v13.compute_full_subgroups, info.subgroup);
     const char* compile_mode = std::getenv("LEONIDA_PIPELINE_COMPILE");
     const auto mode = compile_mode ? std::string_view(compile_mode) : std::string_view{};
-    v13.enable_pipeline_cache_control = mode == "cache-only" && v13.core && v13.pipeline_cache_control;
-    info.cold_graphics_compile = v13.enable_pipeline_cache_control;
+    // pipelineCreationCacheControl: for LEONIDA_PIPELINE_COMPILE=cache-only, and for the heavy pipeline cache unless
+    // LEONIDA_HEAVY_PIPELINE_CACHE_MS=0 turns it off.
+    v13.enable_pipeline_cache_control =
+        (mode == "cache-only" || heavy_pipeline_cache_ms()) && v13.core && v13.pipeline_cache_control;
+    info.cold_graphics_compile = mode == "cache-only" && v13.enable_pipeline_cache_control;
+    info.heavy_pipeline_cache = heavy_pipeline_cache_ms() && v13.enable_pipeline_cache_control;
     info.prepare_on_bind = mode == "on-demand";
     void* v13_chain = v13.enable(ext_chain);
     // D3D-78 uses the core robustness and format-feature flags. Leave the Vulkan 1.2 extension path unchanged.
@@ -18492,13 +18688,17 @@ HRESULT create_vulkan_device_standalone(REFIID riid, void** out, QueueTestSettin
         vkGetPhysicalDeviceFeatures2(info.physical, &query);
     }
     const char* host_image_copy_name = VK_EXT_HOST_IMAGE_COPY_EXTENSION_NAME;
-    info.host_image_copy = has_host_image_copy && host_copy.hostImageCopy;
+    // LEONIDA_HOST_IMAGE_COPY (src/host_image_copy_policy.h). Off, the extension is neither enabled nor chained, so no
+    // image gets host-transfer usage and every CPU texture copy takes the staging submit, as on a device without it.
+    const leonida::HostImageCopyChoice host_copy_choice = leonida::host_image_copy_choice(
+        std::getenv("LEONIDA_HOST_IMAGE_COPY"), has_host_image_copy && host_copy.hostImageCopy, chosen.vendorID);
+    info.host_image_copy = host_copy_choice.use;
     if (info.host_image_copy) {
         host_copy.pNext = *v13.next();  // after the conditional rendering features, if any
         *v13.next() = &host_copy;
-    } else {
-        std::fprintf(stderr, "[rt] d3d12: no VK_EXT_host_image_copy; CPU texture copies use a staging submit\n");
     }
+    std::fprintf(stderr, "[rt] d3d12: host image copy: %s (%s)%s\n", info.host_image_copy ? "on" : "off",
+                 host_copy_choice.reason, info.host_image_copy ? "" : "; CPU texture copies use a staging submit");
 
     const auto has_device_extension = [&](const char* name) {
         return std::any_of(extensions.begin(), extensions.end(),

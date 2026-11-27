@@ -325,6 +325,7 @@ ones marked *diagnostic* only add log lines or exist to compare a run with and w
 | `LEONIDA_CONSOLE_FORMATS` | on | Texture descriptions the console accepts and a PC GPU may not (an R9G9B9E5 render target, an sRGB RGBA8 or BGRA8 texture with unordered access) get a host format that can do the job. `0` refuses them, as a PC D3D12 runtime does. |
 | `LEONIDA_CONSOLE_HEAP_SHADOW` | on | A console descriptor heap has a copy in the descriptor arena that the shaders read. `0` keeps its bytes in the title's memory only (the comparison for a run that misbehaves with the copy). |
 | `LEONIDA_IMPORT_BELOW_ARENA` | unset | `1` keeps a host-memory import that the driver put below the GPU address arena. By default such an import is not used and the shadow buffer in the arena answers, because a V# cannot name an address below the arena. |
+| `LEONIDA_HOST_IMAGE_COPY` | `auto` | Whether `WriteToSubresource`/`ReadFromSubresource` copy on the CPU with `VK_EXT_host_image_copy`. `auto` (unset, or any text other than `0` and `1`) uses it where the device has it, except on NVIDIA (vendor `0x10DE`), where a real boot lost the device; `1` uses it wherever the device has it; `0` never enables the extension, so every CPU texture copy takes the staging submit. Device creation logs one `[rt] d3d12: host image copy:` line with the choice and why (`docs/d3d12_vulkan.md`). |
 | `LEONIDA_ORDER_TEXTURE_UPLOADS` | on | A title texture in a host-transfer image is filled through the ordered host copy (`write_host_texture`). `0` fills it with `WriteToSubresource`. |
 | `LEONIDA_PLACED_IMAGE_KEYS` | on | A texture the title placed at its own address (device slot 133) and that the GPU writes keeps its own image address as its T# key. `0` re-keys it to the title address, like a texture the GPU does not write. |
 | `LEONIDA_PLACED_TEXTURE_UAV` | on | Device slot 71 writes an unordered-access view of a texture in the title's placed memory. `0` writes a null descriptor. |
@@ -536,9 +537,11 @@ The game's `atexit` handlers and static destructors go to a table of the run's o
 shared with gta6rt): `exit` and a return from `main` run them newest first before the run ends, `_cexit` runs them and
 returns, and `_exit`, `quick_exit`, `ExitProcess` and `abort` skip them, as natively. `run_tiny_atexit` runs a stand-in
 program natively and through `--run` for each of those paths (and for `_exit` from a second thread during `exit`) and
-holds both to the Windows sequence (under Wine, whose CRT differs, a native difference is only reported). Not covered
-yet: `at_quick_exit` handlers (`quick_exit` runs none) and the thread-local destructor callback
-(`_register_thread_local_exe_atexit_callback`); both still reach the host CRT.
+holds both to the Windows sequence (under Wine, whose CRT differs, a native difference is only reported). The
+executable's `_register_thread_local_exe_atexit_callback` is kept by the runtime and called on guest thread detach,
+after that thread's executable TLS callbacks. `exit` also runs it before the game thread parks for host shutdown;
+`_cexit`, `_exit`, `quick_exit`, `ExitProcess` and `abort` do not. `at_quick_exit` handlers are not covered (`quick_exit`
+runs none).
 `run_tiny_frame` does it with a stand-in that imports `d3d12_xs.dll!D3D12XboxCreateDevice` and, with
 `LEONIDA_D3D12=vulkan`, clears a render target and reads it back on the Vulkan device: the loader, the game thread,
 the Xbox-ABI proxies and the device in one process (`test/fixtures/tiny_frame.cpp`; `test/check_tiny_frame.py` checks

@@ -944,7 +944,8 @@ The compute path, end to end:
     primitive overestimation no greater than `0.5 - 1/512` pixels, leaving half a minimum grid step within the
     Tier 1 uncertainty bound. `ConservativeRaster=ON` uses overestimate mode with zero extra overestimation,
     including unbound-attachment variants. OFF keeps the ordinary pipeline. Missing support, unknown modes,
-    wireframe and non-triangle PSOs are refused; conservative TIR (`ForcedSampleCount != 0`) remains `E_NOTIMPL`.
+    wireframe and non-triangle PSOs are refused (a mesh PSO needs no topology type: its module has to output
+    triangles, `conservative_raster::mesh_outputs_triangles`); conservative TIR (`ForcedSampleCount != 0`) remains `E_NOTIMPL`.
     Tier 2 additionally requires `degenerateTrianglesRasterized` and primitive overestimation plus half a
     device subpixel step no greater than 1/256 pixel. Other eligible devices retain Tier 1. The standalone
     device does not expose Tier 3: the Xbox `SV_InnerCoverage` input mapping has not been confirmed. See
@@ -2362,6 +2363,19 @@ Pipeline creation:
   The files must match the Vulkan vendor, device and pipeline-cache UUID. Vulkan supplies an opaque snapshot.
   Replacing part of the previous file would corrupt it.
   `LEONIDA_PIPELINE_CACHE_BYTES` caps session writes (256 MiB by default, zero disables the session file).
+  The session file can't keep a crashed run's compiles. It is written at teardown only, and a cache seeded from
+  the corpus returns the whole corpus, so it's over that cap. The heavy pipeline cache (RT-HEAVY-PIPELINE-CACHE,
+  `runtime/src/heavy_pipeline_cache.h`) keeps them. Every graphics and compute build first asks the corpus cache with
+  `VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT`. A pipeline the corpus doesn't have is built against a
+  second cache, seeded from `pipeline_cache.heavy.bin` next to `pipeline_cache.bin`, so that cache holds only the
+  corpus's misses.
+  A build that takes at least `LEONIDA_HEAVY_PIPELINE_CACHE_MS` (500 by default) marks the heavy cache for writing.
+  A thread of its own writes it whole: 3 s after the newest slow build, and no later than 20 s after the first unwritten
+  one, through the same staging file and rename as the session cache. A crash therefore loses at most the last 20 s
+  of slow builds, and the next launch starts with the rest. The thread stops and writes what is left at device
+  teardown. `LEONIDA_HEAVY_PIPELINE_CACHE_MS=0` turns the heavy cache off, and with it the
+  `pipelineCreationCacheControl` feature unless `LEONIDA_PIPELINE_COMPILE=cache-only` asks for it. A cache-only create
+  (`cache-only`) is left as it is.
   `LEONIDA_SKIP_COMPUTE=<part of a name>[,<part>...]` (`all`: every compute program) never builds the matching
   compute programs and drops their dispatches, direct and indirect; the first dropped dispatch of each is logged.
   It is a way past a program that hangs the GPU while the program or its input is fixed, not a fix.
@@ -2922,6 +2936,14 @@ The console has two list topologies Vulkan lacks: rectangle list (`IASetPrimitiv
     without host-transfer usage before it is bound, and takes the staging path. `d3d12_vulkan_device_test` and
     `d3d12_subresource_copy_test` force this branch on any GPU with `VulkanDeviceInfo::force_host_transfer_retry`
     (their third CPU-copy path; the second compares it with the host runtime).
+  - `LEONIDA_HOST_IMAGE_COPY` chooses whether the device enables the extension at all (`src/host_image_copy_policy.h`,
+    tested by `host_image_copy_policy_test`): `1` wherever the device has it, `0` never, and `auto`, the default, as
+    `1` except on NVIDIA (`vendorID` `0x10DE`), where it is off. On an RTX 4070 SUPER (Windows 11) a real boot lost
+    the device with `WRITE_INVALID` in 7 of 7 runs that used host image copies and in 0 of 2 that did not; why is
+    still under investigation. Off, the extension is neither enabled nor chained, no texture gets host-transfer
+    usage, and every copy takes the staging path, as on a device without the extension. Device creation logs one
+    line, `[rt] d3d12: host image copy: on (available)` or `off (...)` with the reason. Results with
+    `LEONIDA_HOST_IMAGE_COPY=1` on other NVIDIA GPUs and drivers are welcome in an issue.
 - 96-bit textures (`R32G32B32_FLOAT`/`_UINT`/`_SINT`/`_TYPELESS`, D3D-62) are `R32G32B32A32` images
   (`ResourceBinding::rgb96`), on every GPU. Most GPUs have no optimal-tiling RGB32 image (an RX 9070 XT reports
   no optimal features for `R32G32B32_SFLOAT`), and one that has would not avoid the repack: D3D12 places
