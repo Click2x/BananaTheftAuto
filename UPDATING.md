@@ -38,7 +38,7 @@ A ZIP copy can't update itself. Clone it once with the command above, and Update
 
 ## Lost power or crashed mid-build?
 
-Nothing is lost: finished steps are kept. Open the menu and press **C (Check my build)**. It shows what is still good,
+Nothing is lost: finished steps are kept. Open the menu and press **U (Update)**. After the update it checks your build: what is still good,
 what is out of date and what was interrupted, and offers to clean up the leftovers. Then choose **Start** and the build
 carries on from where it stopped.
 

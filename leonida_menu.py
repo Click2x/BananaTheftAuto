@@ -1245,6 +1245,7 @@ def note_built(st, stages, code):
 def screen_update(st):
     heading("Update Banana Theft Auto")
     note("Compares this folder with the Banana Theft Auto repository on GitHub, shows what is new, and updates it. "
+         "Then checks your build: what is still good, what is out of date, and what a power cut or crash left behind. "
          "Only code changes are downloaded (usually a few MB). Nothing changes until you say yes.")
     if not yesno("Check GitHub for updates now", True):
         return
@@ -1306,9 +1307,14 @@ def screen_update(st):
             return
         steps = [x for x in ("shaders", "runtime") if x in steps or x in s["steps"]]
         note("The menu itself may have changed: close it and start Leonida.bat again when you are done here.")
+    # The build on this PC: current, out of date or interrupted (a power cut, a crash), and leftovers to clean up.
+    for step in check_build(st):
+        if step not in steps:
+            steps.append(step)
+    steps = [x for x in ("shaders", "runtime") if x in steps]
     if not steps:
         if not s["behind"]:
-            note("Nothing to do.")
+            note("Nothing to update.")
         pause()
         return
     if not st.get("game"):
@@ -1332,10 +1338,11 @@ def screen_update(st):
     result_screen(st, code, log_path)
 
 
-def screen_buildcheck(st):
-    heading("Check my build")
-    note("Looks at your build after a power cut, a crash or an update: what is still good, what is out of date, and "
-         "what an interrupted run left behind. Nothing is deleted unless you say yes.")
+def check_build(st):
+    """Part of Update: the local build after a power cut, a crash or an update. What is still good, what is out of
+    date and what an interrupted run left behind; offers to delete leftovers (asks first). Returns the build steps
+    the check found out of date ("shaders", "runtime")."""
+    heading("Your build")
     out, _ = run_folder(st)
     work = st.get("work") or os.path.join(out, "work")
     p("   " + paint("Checking " + out + " and " + work + " ...", 245))
@@ -1382,9 +1389,7 @@ def screen_buildcheck(st):
         if yesno("Delete the out-of-date translated shaders (%s)" % bta_buildcheck.gb(size), False):
             shutil.rmtree(path, ignore_errors=True)
             line("ok", "Deleted " + path)
-    if rt == "outdated" or sh == "outdated":
-        note("To bring it up to date: choose Update (it rebuilds only what changed), or Start.")
-    pause()
+    return [x for x, state in (("shaders", sh), ("runtime", rt)) if state == "outdated"]
 
 
 def run_folder(st):
@@ -1516,8 +1521,7 @@ def help_screen():
 
 HOME = [[("1", "Start", "your game, then build"), ("s", "Shaders only", "run just the shader step"),
          ("r", "Run the game", "start the built port and log it")],
-        [("u", "Update", "get the latest version from GitHub"), ("c", "Check my build", "after a power cut, crash or update"),
-         ("2", "Check this PC", "hardware, drives, tools"),
+        [("u", "Update", "new version, or after a power cut or crash"), ("2", "Check this PC", "hardware, drives, tools"),
          ("3", "Find my game copy", "I look for it for you")],
         [("4", "What can be installed", "every tool and its source"), ("5", "Settings", "folders and speed"), ("6", "Help", "")],
         [("q", "Quit", "")]]
@@ -1542,8 +1546,6 @@ def home():
                 screen_run(st)
             elif k == "u":
                 screen_update(st)
-            elif k == "c":
-                screen_buildcheck(st)
             elif k == "2":
                 screen_check(st)
             elif k == "3":
@@ -1589,8 +1591,6 @@ def main():
     try:
         if "--preview" in sys.argv:
             preview()
-        elif "--check" in sys.argv:
-            screen_buildcheck(load())
         elif "--update" in sys.argv:
             screen_update(load())
         elif "--pc" in sys.argv:
