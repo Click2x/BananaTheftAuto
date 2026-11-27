@@ -11,6 +11,7 @@
 #include "../src/vulkan_graphics_shader_modules.h"
 #include "d3d12_com.h"
 #include "d3d12_compile_exit.h"
+#include "banana_splash.h"
 #include "d3d12_pipeline_compile.h"
 #include "d3d12_pipeline_checkpoint.h"
 #include "d3d12_feature_compat.h"
@@ -9009,23 +9010,43 @@ public:
             const DWORD n = GetEnvironmentVariableW(name, v, 16);
             return n > 0 && n < 16 ? unsigned(_wtoi(v)) : fallback;
         };
-        const unsigned threads = env_uint(L"LEONIDA_PRECOMPILE_LIBRARY", 0);
-        if (!threads) return;
-        // The title keeps running meanwhile, and its own checks fault once device creation takes ~30 s. Its threads
-        // are not needed any more: one that faults outside a loaded DLL (the title's image is not one) is parked.
-        AddVectoredExceptionHandler(1, park_title_fault);
+        // LEONIDA_PRELOAD (Banana Theft Auto): the same builds before the title goes on, with a splash window, and
+        // the title continues afterwards. On by default when the title's hang watchdog is kept kicked
+        // (LEONIDA_TITLE_WATCHDOG=0), since the title waits here; LEONIDA_PRELOAD=0 or 1 decides otherwise.
+        const unsigned precompile = env_uint(L"LEONIDA_PRECOMPILE_LIBRARY", 0);
+        const bool preload = !precompile && [] {
+            wchar_t v[2]{};
+            if (GetEnvironmentVariableW(L"LEONIDA_PRELOAD", v, 2) == 1) return v[0] != L'0';
+            return GetEnvironmentVariableW(L"LEONIDA_TITLE_WATCHDOG", v, 2) == 1 && v[0] == L'0';
+        }();
+        if (!precompile && !preload) return;
+        const unsigned cores = std::thread::hardware_concurrency();
+        const unsigned threads = precompile ? precompile : (cores > 4 ? cores - 2 : 2u);
+        const char* const tag = precompile ? "precompile" : "preload";
+        if (precompile) {
+            // The title keeps running meanwhile, and its own checks fault once device creation takes ~30 s. Its
+            // threads are not needed any more: one that faults outside a loaded DLL (the title's image is not one)
+            // is parked.
+            AddVectoredExceptionHandler(1, park_title_fault);
+        } else {
+            // The title waits here; its second stall check (a null write) must not end the process meanwhile.
+            AddVectoredExceptionHandler(1, park_null_write);
+        }
         const leonida::ShaderLibrary* library = d.library();
         auto& vk = d.context->vk;
         const VkDevice dev = d.info.device;
         const VkPipelineCache cache = d.pipeline_cache();
         if (!library || !cache) {
-            std::fprintf(stderr, "[rt] precompile: no shader library or pipeline cache\n");
-            ExitProcess(2);
+            std::fprintf(stderr, "[rt] %s: no shader library or pipeline cache\n", tag);
+            if (precompile) ExitProcess(2);
+            return;
         }
         std::vector<const leonida::ShaderEntry*> all;
         std::set<std::string> names;
         library->for_each_fspx([&](const leonida::ShaderEntry& e) {
-            if (e.stage == "cs" && e.name.rfind("library/", 0) == 0 && names.insert(e.name).second) all.push_back(&e);
+            if (e.stage == "cs" && e.name.rfind("library/", 0) == 0 && (precompile || !skip_compute(e.name)) &&
+                names.insert(e.name).second)
+                all.push_back(&e);
         });
         std::sort(all.begin(), all.end(), [](auto* a, auto* b) { return a->name < b->name; });
         const std::size_t start = std::min<std::size_t>(env_uint(L"LEONIDA_PRECOMPILE_START", 0), all.size());
@@ -9063,9 +9084,10 @@ public:
             if (MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
                 std::fprintf(stderr, "[rt] precompile: wrote %zu bytes to pipeline_cache.bin\n", size);
         };
-        std::fprintf(stderr, "[rt] precompile: %zu library compute programs, building [%zu, %zu) on %u threads\n",
+        std::fprintf(stderr, "[rt] %s: %zu library compute programs, building [%zu, %zu) on %u threads\n", tag,
                      all.size(), start, start + count, threads);
-        std::atomic<std::size_t> built{0}, failed{0}, slow{0};
+        std::atomic<std::size_t> built{0}, failed{0}, slow{0}, processed{0}, slow_total{0};
+        if (preload) rt::banana_splash::start(unsigned(count));
         const ULONGLONG began = GetTickCount64();
         constexpr std::size_t chunk = 125;
         for (std::size_t at = start; at < start + count; at += chunk) {
@@ -9081,6 +9103,7 @@ public:
                         module_info.codeSize = words.size() * 4;
                         module_info.pCode = words.data();
                         VkShaderModule module = VK_NULL_HANDLE;
+                        if (preload) rt::banana_splash::progress(unsigned(++processed));
                         if (words.empty() || vk.vkCreateShaderModule(dev, &module_info, nullptr, &module) != VK_SUCCESS) {
                             ++failed;
                             continue;
@@ -9103,26 +9126,31 @@ public:
                         vk.vkDestroyShaderModule(dev, module, nullptr);
                         if (r != VK_SUCCESS) {
                             ++failed;
-                            std::fprintf(stderr, "[rt] precompile: %s failed (VkResult %d)\n", e.name.c_str(), int(r));
+                            std::fprintf(stderr, "[rt] %s: %s failed (VkResult %d)\n", tag, e.name.c_str(), int(r));
                             continue;
                         }
                         ++built;
                         if (took >= 2000) {
                             ++slow;
-                            std::fprintf(stderr, "[rt] precompile: %s took %.1f s\n", e.name.c_str(), took / 1000.0);
+                            ++slow_total;
+                            std::fprintf(stderr, "[rt] %s: %s took %.1f s\n", tag, e.name.c_str(), took / 1000.0);
                         }
                     }
                 });
             for (auto& w : workers) w.join();
-            std::fprintf(stderr, "[rt] precompile: %zu of %zu done (%zu built, %zu slow, %zu failed) after %.0f s\n",
+            std::fprintf(stderr, "[rt] %s: %zu of %zu done (%zu built, %zu slow, %zu failed) after %.0f s\n", tag,
                          end - start, count, built.load(), slow.load(), failed.load(),
                          (GetTickCount64() - began) / 1000.0);
-            if (slow.exchange(0)) save();  // a chunk of cache hits adds nothing worth a 5 GB write
+            // A chunk of cache hits adds nothing worth a 5 GB write; the preload writes once, at its end.
+            if (slow.exchange(0) && precompile) save();
         }
-        save();
-        std::fprintf(stderr, "[rt] precompile: finished\n");
+        if (precompile || slow_total.load()) save();
+        std::fprintf(stderr, "[rt] %s: finished after %.0f s\n", tag, (GetTickCount64() - began) / 1000.0);
         std::fflush(stderr);
-        ExitProcess(0);
+        if (precompile) ExitProcess(0);
+        rt::banana_splash::finish();
+        for (VkPipelineLayout l : layouts)
+            if (l) vk.vkDestroyPipelineLayout(dev, l, nullptr);
     }
 
     HRESULT create_compute(const D3D12_COMPUTE_PIPELINE_STATE_DESC& desc) {
@@ -11428,7 +11456,7 @@ public:
             state_.bindless.reset();
             return false;
         }
-        PipelineState::precompile_library(state_);  // LEONIDA_PRECOMPILE_LIBRARY only; never returns then
+        PipelineState::precompile_library(state_);  // LEONIDA_PRECOMPILE_LIBRARY (never returns) or LEONIDA_PRELOAD
         if (PipelineState::env_flag(L"LEONIDA_PARK_NULL_WRITE"))
             AddVectoredExceptionHandler(1, PipelineState::park_null_write);
         // LEONIDA_PARK_TITLE_FAULTS=1: last in line, after the runtime's own handlers, any access violation still

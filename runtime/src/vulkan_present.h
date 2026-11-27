@@ -30,6 +30,7 @@
 #include "fsdraw_probe.h"  // LOCAL DIAGNOSTIC
 #include "local_diagnostics.h"
 #include "present_dump.h"
+#include "loading_progress.h"
 
 // Use the original EXT spellings. They are aliases of the promoted KHR types and are available in older headers.
 #if defined(VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME) && defined(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME)
@@ -222,6 +223,7 @@ public:
         finish_pending_capture();
         release_capture();
         composer_.reset();
+        release_bar_images();
         for (Frame& frame : frames_) {
             drop_views(frame);
             if (frame.done) vkDestroyFence_(device, frame.done, nullptr);
@@ -705,6 +707,12 @@ private:
     int probe_written_ = 0;
     VkCommandBuffer probe_commands_ = VK_NULL_HANDLE;
     VkFence probe_fence_ = VK_NULL_HANDLE;
+    // The loading bar (draw_loading_bar).
+    VkImage bar_images_[2]{};
+    VkDeviceMemory bar_memory_[2]{};
+    bool bar_colours_ready_ = false;
+    bool bar_failed_ = false;
+    leonida::loading::Phase bar_phase_;
 
     static float probe_half(std::uint16_t h) {
         const std::uint32_t sign = (h >> 15) & 1, exponent = (h >> 10) & 0x1f, mantissa = h & 0x3ff;
@@ -1310,7 +1318,122 @@ private:
 
     // The swapchain image is written (TRANSFER_DST): optionally copy it to the capture buffer, then hand it to
     // the presentation engine.
+    // Banana Theft Auto loading bar: while the pipeline compile queue has a backlog (leonida::loading), a banana-yellow
+    // bar on a dark track near the bottom of the window shows how much of it is done. Drawn into the swapchain image
+    // after the frame's blit, from two 1x1 images of those colours; it covers the black screens of the first boot.
+    bool make_bar_images() {
+        auto& vk = context_.vk;
+        const VkDevice device = context_.device();
+        if (!vk.vkCreateImage || !vk.vkAllocateMemory || !vk.vkBindImageMemory || !vk.vkGetImageMemoryRequirements ||
+            !vkCmdClearColorImage_ || !vkGetPhysicalDeviceMemoryProperties_)
+            return false;
+        VkPhysicalDeviceMemoryProperties props{};
+        vkGetPhysicalDeviceMemoryProperties_(physical_, &props);
+        for (int i = 0; i < 2; ++i) {
+            VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+            info.imageType = VK_IMAGE_TYPE_2D;
+            info.format = VK_FORMAT_R8G8B8A8_UNORM;
+            info.extent = {1, 1, 1};
+            info.mipLevels = info.arrayLayers = 1;
+            info.samples = VK_SAMPLE_COUNT_1_BIT;
+            info.tiling = VK_IMAGE_TILING_OPTIMAL;
+            info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+            if (vk.vkCreateImage(device, &info, nullptr, &bar_images_[i]) != VK_SUCCESS) return false;
+            VkMemoryRequirements req{};
+            vk.vkGetImageMemoryRequirements(device, bar_images_[i], &req);
+            std::uint32_t type = UINT32_MAX;
+            for (std::uint32_t t = 0; t < props.memoryTypeCount && type == UINT32_MAX; ++t)
+                if ((req.memoryTypeBits & (1u << t)) &&
+                    (props.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+                    type = t;
+            VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+            allocate.allocationSize = req.size;
+            allocate.memoryTypeIndex = type;
+            if (type == UINT32_MAX || vk.vkAllocateMemory(device, &allocate, nullptr, &bar_memory_[i]) != VK_SUCCESS ||
+                vk.vkBindImageMemory(device, bar_images_[i], bar_memory_[i], 0) != VK_SUCCESS)
+                return false;
+        }
+        return true;
+    }
+
+    void release_bar_images() {
+        auto& vk = context_.vk;
+        const VkDevice device = context_.device();
+        for (int i = 0; i < 2; ++i) {
+            if (bar_images_[i] && vk.vkDestroyImage) vk.vkDestroyImage(device, bar_images_[i], nullptr);
+            if (bar_memory_[i] && vk.vkFreeMemory) vk.vkFreeMemory(device, bar_memory_[i], nullptr);
+            bar_images_[i] = VK_NULL_HANDLE;
+            bar_memory_[i] = VK_NULL_HANDLE;
+        }
+    }
+
+    // `image` is in TRANSFER_DST_OPTIMAL with the frame's blit recorded before.
+    void draw_loading_bar(VkCommandBuffer commands, std::uint32_t image) {
+        if (bar_failed_ || !leonida::loading::enabled()) return;
+        const double progress = bar_phase_.progress();
+        if (progress < 0) return;
+        auto& vk = context_.vk;
+        if (!bar_images_[0]) {
+            if (!make_bar_images()) {
+                release_bar_images();
+                bar_failed_ = true;
+                return;
+            }
+        }
+        const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.subresourceRange = range;
+        if (!bar_colours_ready_) {  // once: fill the two 1x1 images and leave them as blit sources
+            const VkClearColorValue colours[2] = {{{0.08f, 0.07f, 0.10f, 1.0f}}, {{1.0f, 0.84f, 0.12f, 1.0f}}};
+            for (int i = 0; i < 2; ++i) {
+                barrier.image = bar_images_[i];
+                barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                barrier.srcAccessMask = 0;
+                barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                vk.vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                                        0, nullptr, 0, nullptr, 1, &barrier);
+                vkCmdClearColorImage_(commands, bar_images_[i], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &colours[i], 1,
+                                      &range);
+                barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+                vk.vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
+                                        nullptr, 0, nullptr, 1, &barrier);
+            }
+            bar_colours_ready_ = true;
+        }
+        // The frame's blit wrote the swapchain image: order these writes after it.
+        VkMemoryBarrier after_blit{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        after_blit.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        after_blit.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vk.vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1,
+                                &after_blit, 0, nullptr, 0, nullptr);
+        const std::int32_t w = std::int32_t(extent_.width), h = std::int32_t(extent_.height);
+        if (w < 64 || h < 32) return;
+        const std::int32_t bar_w = w * 2 / 5, bar_h = (std::max)(6, h / 90), pad = (std::max)(2, bar_h / 3);
+        const std::int32_t x0 = (w - bar_w) / 2, y0 = h - h / 12 - bar_h;
+        const auto blit_rect = [&](int colour, std::int32_t l, std::int32_t t, std::int32_t r, std::int32_t b) {
+            if (r <= l || b <= t) return;
+            VkImageBlit blit{};
+            blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            blit.srcOffsets[1] = {1, 1, 1};
+            blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            blit.dstOffsets[0] = {l, t, 0};
+            blit.dstOffsets[1] = {r, b, 1};
+            vkCmdBlitImage_(commands, bar_images_[colour], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, images_[image],
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
+        };
+        blit_rect(0, x0 - pad, y0 - pad, x0 + bar_w + pad, y0 + bar_h + pad);
+        blit_rect(1, x0, y0, x0 + std::int32_t(bar_w * progress), y0 + bar_h);
+        vk.vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1,
+                                &after_blit, 0, nullptr, 0, nullptr);
+    }
+
     void finish_image(VkCommandBuffer commands, std::uint32_t image) {
+        draw_loading_bar(commands, image);
         const ReplayFunctions& fn = context_.replay_;
         const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         VkImageLayout layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;

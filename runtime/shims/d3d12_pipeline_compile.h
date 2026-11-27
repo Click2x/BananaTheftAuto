@@ -2,6 +2,7 @@
 #pragma once
 
 #include "../src/vulkan_replay.h"
+#include "../src/loading_progress.h"
 #include <windows.h>
 #include <algorithm>
 #include <chrono>
@@ -129,6 +130,7 @@ public:
         }
         jobs_.emplace(priority, Job{owner, device, std::move(work)});
         ++stats_.submitted;
+        leonida::loading::job_queued();
         wake_.notify_one();
         return true;
     }
@@ -268,6 +270,7 @@ private:
                 dropped.push_back(std::move(it->second));
                 it = jobs_.erase(it);
                 ++stats_.dropped;
+                leonida::loading::job_finished();
             } else {
                 ++it;
             }
@@ -313,6 +316,7 @@ private:
             job.work = nullptr;  // its captures go before the job counts as done
             lock.lock();
             ++stats_.completed;
+            leonida::loading::job_finished();
             Running& self = mine(me);
             self.finished = true;
             if (std::function<void()> after = std::move(self.after)) {

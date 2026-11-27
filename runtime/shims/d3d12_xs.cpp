@@ -10,6 +10,7 @@
 #include <windows.h>
 #include <d3d12.h>
 
+#include "../src/loading_progress.h"
 #include <atomic>
 #include <chrono>
 #include <cwchar>
@@ -148,6 +149,7 @@ static void start_banana_frame(HWND window, rt::d3d12::XboxPresentation* xbox) {
         }
         std::uint64_t last = xbox->presents();
         auto then = std::chrono::steady_clock::now();
+        leonida::loading::Phase phase;
         while (IsWindow(window)) {
             Sleep(500);
             const std::uint64_t now_presents = xbox->presents();
@@ -156,8 +158,14 @@ static void start_banana_frame(HWND window, rt::d3d12::XboxPresentation* xbox) {
             const double fps = seconds > 0 ? double(now_presents - last) / seconds : 0.0;
             last = now_presents;
             then = now;
-            wchar_t title[128];
-            std::swprintf(title, std::size(title), L"\U0001F34C Banana Theft Auto \U0001F34C   %.1f fps", fps);
+            wchar_t title[160];
+            const double loading = leonida::loading::enabled() ? phase.progress() : -1.0;
+            if (loading >= 0)
+                std::swprintf(title, std::size(title),
+                              L"\U0001F34C Banana Theft Auto \U0001F34C   %.1f fps   loading shaders %d%%", fps,
+                              int(loading * 100));
+            else
+                std::swprintf(title, std::size(title), L"\U0001F34C Banana Theft Auto \U0001F34C   %.1f fps", fps);
             // The title's window class is ANSI, so SetWindowTextW would pass through its window procedure as ANSI and the
             // bananas would become "??". DefWindowProcW stores the caption as Unicode without going through it.
             DefWindowProcW(window, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(title));
