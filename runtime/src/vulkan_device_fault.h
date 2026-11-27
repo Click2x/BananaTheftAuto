@@ -175,6 +175,43 @@ struct CheckpointSubmission {
     }
 };
 
+// The last copies recorded with checkpoints, for a device-fault report: where each is (submission, list, command) and
+// what it writes. Diagnostic; a fixed ring, filled by the replay (record_copy_note) and printed by report().
+struct CopyNote {
+    std::uint32_t submission = 0;
+    std::size_t list = 0, command = 0;
+    char text[200] = "";
+};
+inline std::mutex& copy_note_mutex() {
+    static std::mutex m;
+    return m;
+}
+inline std::array<CopyNote, 256>& copy_notes() {
+    static std::array<CopyNote, 256> ring{};
+    return ring;
+}
+inline std::size_t& copy_note_count() {
+    static std::size_t n = 0;
+    return n;
+}
+inline void record_copy_note(std::uint32_t submission, std::size_t list, std::size_t command, const char* text) {
+    std::lock_guard lock(copy_note_mutex());
+    CopyNote& n = copy_notes()[copy_note_count()++ % copy_notes().size()];
+    n.submission = submission;
+    n.list = list;
+    n.command = command;
+    std::snprintf(n.text, sizeof(n.text), "%s", text);
+}
+inline void dump_copy_notes() {
+    std::lock_guard lock(copy_note_mutex());
+    const std::size_t total = copy_note_count(), n = std::min<std::size_t>(total, 24);
+    for (std::size_t i = total - n; i < total; ++i) {
+        const CopyNote& c = copy_notes()[i % copy_notes().size()];
+        std::fprintf(stderr, "[rt] device-fault: recorded copy submission=%u list=%zu command=%zu %s\n", c.submission,
+                     c.list, c.command, c.text);
+    }
+}
+
 struct CheckpointRecorder {
     PFN_vkCmdSetCheckpointNV set;
     CheckpointSubmission& submission;
@@ -357,6 +394,7 @@ private:
         if (reported_.exchange(true, std::memory_order_relaxed)) return;
         std::fprintf(stderr, "[rt] device-fault: VK_ERROR_DEVICE_LOST from %s\n", operation);
         dump_dispatches();
+        dump_copy_notes();
         try {
             std::function<void()> hook;
             {

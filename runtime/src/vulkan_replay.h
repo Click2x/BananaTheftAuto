@@ -4691,6 +4691,25 @@ inline void emit_commands(const PreparedList& prepared, VkCommandBuffer command_
                    std::holds_alternative<CopyResource>(command)) {
             if constexpr (Checkpoints) checkpoints->record(command_buffer, i, CheckpointKind::copy);
             const auto [dst_id, src_id] = copy_ids(command);
+            if constexpr (Checkpoints) {  // what this copy writes, for a device-fault report
+                const auto side = [](const ResourceBinding& b, char* out, std::size_t n) {
+                    if (b.image)
+                        std::snprintf(out, n, "image %ux%ux%u fmt %d mips %u layers %u", b.width, b.height, b.depth,
+                                      int(b.format), b.mip_levels, b.array_layers);
+                    else
+                        std::snprintf(out, n, "buffer %p+0x%llx (%llu bytes, va 0x%llx)", static_cast<void*>(b.buffer),
+                                      (unsigned long long)b.buffer_offset, (unsigned long long)b.size,
+                                      (unsigned long long)b.va);
+                };
+                char dst[96], src[96], text[200];
+                side(p.binding, dst, sizeof(dst));
+                side(p.source, src, sizeof(src));
+                const char* kind = std::holds_alternative<CopyBuffer>(command)    ? "CopyBuffer"
+                                   : std::holds_alternative<CopyTexture>(command) ? "CopyTexture"
+                                                                                  : "CopyResource";
+                std::snprintf(text, sizeof(text), "%s dst=[%s] src=[%s]", kind, dst, src);
+                record_copy_note(checkpoints->submission.sequence, checkpoints->list, i, text);
+            }
             if (!p.predicated_copy.empty()) {
                 end_statistics();
                 vk.emit_predicated_copy(command_buffer, p.predicated_copy);
