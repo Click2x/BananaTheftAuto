@@ -7,6 +7,10 @@ Windows and Vulkan, which is itself a continuation of an earlier project (see Cr
 that finds your own copy of the game, checks your PC, offers the tools the build needs (asking first) and starts the build, plus our
 own runtime and shader fixes. It does not contain, download or share any game files.
 
+> [!TIP]
+> **Watch the build live: join the Part Time Heroes on Discord → https://discord.gg/ppNRZDSda**
+> It's the community where the Banana Theft Auto build is streamed, with progress posted as it happens.
+
 > **Status (2026-11-26): early, the game does not play yet, but it is loading the world.** On the author's PC (RTX 3090) the recompiled
 > title loads, draws its own screens with its real shaders, fonts and textures, takes controller input and goes through its first-run
 > setup. As of 2026-11-26 it gets past the loading-screen stops of the day before: for the first time it ran a full 15-minute test
