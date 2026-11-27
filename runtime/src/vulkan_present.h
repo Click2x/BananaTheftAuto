@@ -187,6 +187,8 @@ public:
             capture_ = true;  // the swapchain needs TRANSFER_SRC, and every frame copies into a staging buffer
             if (const char* every = std::getenv("LEONIDA_CAPTURE_EVERY")) capture_every_ = std::max(1, std::atoi(every));
             if (const char* limit = std::getenv("LEONIDA_CAPTURE_LIMIT")) capture_limit_ = std::max(1, std::atoi(limit));
+            // LEONIDA_CAPTURE_DENSE_FROM=<frame>: from that presented frame on, capture every frame.
+            if (const char* from = std::getenv("LEONIDA_CAPTURE_DENSE_FROM")) capture_dense_from_ = std::strtoull(from, nullptr, 10);
             std::fprintf(stderr, "[rt] present: capture on: every %d presented frame(s), at most %d, into %s\n",
                          capture_every_, capture_limit_, capture_dir_.c_str());
             // LOCAL DIAGNOSTIC: LEONIDA_CAPTURE_SOURCE=1 also reads back the presented source texture itself.
@@ -677,7 +679,8 @@ private:
                 ++tear_presents_;
             }
             if (capture_to_disk_ && capture_ && capture_ptr_ && capture_written_ < capture_limit_ &&
-                (presented_ - 1) % std::uint64_t(capture_every_) == 0)
+                ((presented_ - 1) % std::uint64_t(capture_every_) == 0 ||
+                 (capture_dense_from_ && presented_ >= capture_dense_from_)))
                 pending_capture_ = frame.done;
         }
         if (capture_ && capture_ptr_) {
@@ -1954,6 +1957,7 @@ private:
     std::string capture_dir_;
     int capture_every_ = 30;  // presented frames between files
     int capture_limit_ = 24;  // files at most
+    std::uint64_t capture_dense_from_ = 0;  // 0: never dense
     VkFence pending_capture_ = VK_NULL_HANDLE;  // owns the shared staging bytes until written
     std::uint64_t capture_written_ = 0;
 
