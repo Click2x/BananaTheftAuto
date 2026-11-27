@@ -93,11 +93,80 @@ def disasm(code: bytes, mcpu: str, backend: str = "llvm-mc", wave32: bool = True
         asm, bad = rdna2_decode.disasm_bytes(code, mcpu=mcpu, wave32=wave32)
         return asm, bad, ""
     asm, bad, err = run_mc(code, mcpu, wave32)
-    if bad and asm.strip():
+    if not (bad and asm.strip()):
+        return asm, bad, err
+    dot4 = dot4_sel_words(code, invalid_offsets(err))
+    if dot4:
+        patched = dot4_defaults(code, dot4)
+        asm2, bad2, err2 = run_mc(patched, mcpu, wave32)
+        if asm2.strip():
+            text, hit = restore_dot4_sel(asm2, err2, dot4)
+            if hit == set(dot4):
+                code, asm, bad, err = patched, text, bad2, err2
+            else:
+                dot4 = {}
+        else:
+            dot4 = {}
+    if bad:
         fixed = with_vopc_dpp(code, mcpu, err, wave32)
         if fixed:
-            return fixed
+            asm, bad, err = fixed
+            if dot4:
+                asm = restore_dot4_sel(asm, err, dot4)[0]
     return asm, bad, err
+
+
+# v_dot4_i32_i8 (VOP3P opcode 0x16): llvm-mc 21 rejects some of its op_sel / op_sel_hi combinations (the FidelityFX
+# upscaler's FSR programs hold them), which the translator reads as mods. The words are decoded with the selection bits
+# at their defaults (op_sel [0,0,0], op_sel_hi [1,1,1]); the line then gets the stored selection and stored encoding.
+DOT4_I8_HI = 0xCC16
+
+
+def dot4_sel_words(code: bytes, offsets) -> dict:
+    """{offset: (word0, word1)} of the rejected words at `offsets` that start a v_dot4_i32_i8."""
+    found = {}
+    for at in sorted(offsets):
+        if at % 4 == 0 and at + 8 <= len(code):
+            w0, w1 = struct.unpack_from("<2I", code, at)
+            if w0 >> 16 == DOT4_I8_HI:
+                found[at] = (w0, w1)
+    return found
+
+
+def dot4_defaults(code: bytes, words: dict) -> bytes:
+    patched = bytearray(code)
+    for at, (w0, w1) in words.items():
+        struct.pack_into("<2I", patched, at, (w0 & ~(7 << 11)) | (1 << 14), w1 | (3 << 27))
+    return bytes(patched)
+
+
+def restore_dot4_sel(asm: str, err: str, words: dict):
+    """The listing with each stand-in line at `words` given its stored op_sel/op_sel_hi and encoding; the set of
+    offsets that landed on such a line."""
+    invalid, pos, hit, lines = invalid_offsets(err), 0, set(), []
+    for line in asm.split("\n"):
+        enc = ENCODING.search(line)
+        if not enc:
+            lines.append(line)
+            continue
+        while pos in invalid:
+            pos += 4
+        text = line[:enc.start()].strip()
+        if pos in words and text.startswith("v_dot4_i32_i8"):
+            hit.add(pos)
+            w0, w1 = words[pos]
+            sel = [(w0 >> (11 + k)) & 1 for k in range(3)]
+            selhi = [(w1 >> 27) & 1, (w1 >> 28) & 1, (w0 >> 14) & 1]
+            text = re.sub(r"\s+op_sel(_hi)?:\[[^\]]*\]", "", text)
+            if sel != [0, 0, 0]:
+                text += f" op_sel:[{','.join(map(str, sel))}]"
+            if selhi != [1, 1, 1]:
+                text += f" op_sel_hi:[{','.join(map(str, selhi))}]"
+            original = ",".join(f"0x{b:02x}" for b in struct.pack("<2I", w0, w1))
+            line = f"\t{text:<40}; encoding: [{original}]"
+        lines.append(line)
+        pos += len(enc.group(1).split(","))
+    return "\n".join(lines), hit
 
 
 def run_mc(code: bytes, mcpu: str, wave32: bool = True):

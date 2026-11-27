@@ -8966,6 +8966,165 @@ public:
         return S_OK;
     }
 
+    // LEONIDA_PRECOMPILE_LIBRARY=<threads>: at the title's first compute pipeline, builds every pipeline-library
+    // compute program as build_compute does (same set-0 layout, push range, subgroup request and cache), writes the
+    // whole cache over pipeline_cache.bin after each chunk and at the end, then exits. The offline checker sizes set 0
+    // on its own, so its pipelines miss in the title; these hit. LEONIDA_PRECOMPILE_START / _COUNT pick a range of the
+    // name-sorted programs.
+    static bool env_flag(const wchar_t* name) {
+        wchar_t v[2]{};
+        return GetEnvironmentVariableW(name, v, 2) == 1 && v[0] == L'1';
+    }
+
+    // LEONIDA_PARK_NULL_WRITE=1: a title thread that writes to address 0 outside any loaded DLL is parked instead of
+    // ending the process.
+    static LONG WINAPI park_null_write(EXCEPTION_POINTERS* x) {
+        const EXCEPTION_RECORD& r = *x->ExceptionRecord;
+        if (r.ExceptionCode != EXCEPTION_ACCESS_VIOLATION || r.NumberParameters < 2 || r.ExceptionInformation[0] != 1 ||
+            r.ExceptionInformation[1] != 0)
+            return EXCEPTION_CONTINUE_SEARCH;
+        HMODULE module = nullptr;
+        if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               static_cast<LPCWSTR>(r.ExceptionAddress), &module))
+            return EXCEPTION_CONTINUE_SEARCH;
+        std::fprintf(stderr, "[rt] parked thread %lu: null write at %p\n", GetCurrentThreadId(), r.ExceptionAddress);
+        std::fflush(stderr);
+        for (;;) Sleep(INFINITE);
+    }
+
+    static LONG WINAPI park_title_fault(EXCEPTION_POINTERS* x) {
+        if (x->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION) return EXCEPTION_CONTINUE_SEARCH;
+        HMODULE module = nullptr;
+        if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               static_cast<LPCWSTR>(x->ExceptionRecord->ExceptionAddress), &module))
+            return EXCEPTION_CONTINUE_SEARCH;
+        std::fprintf(stderr, "[rt] precompile: parked a title thread that faulted at %p\n",
+                     x->ExceptionRecord->ExceptionAddress);
+        for (;;) Sleep(INFINITE);
+    }
+
+    static void precompile_library(DeviceState& d) {
+        const auto env_uint = [](const wchar_t* name, unsigned fallback) {
+            wchar_t v[16]{};
+            const DWORD n = GetEnvironmentVariableW(name, v, 16);
+            return n > 0 && n < 16 ? unsigned(_wtoi(v)) : fallback;
+        };
+        const unsigned threads = env_uint(L"LEONIDA_PRECOMPILE_LIBRARY", 0);
+        if (!threads) return;
+        // The title keeps running meanwhile, and its own checks fault once device creation takes ~30 s. Its threads
+        // are not needed any more: one that faults outside a loaded DLL (the title's image is not one) is parked.
+        AddVectoredExceptionHandler(1, park_title_fault);
+        const leonida::ShaderLibrary* library = d.library();
+        auto& vk = d.context->vk;
+        const VkDevice dev = d.info.device;
+        const VkPipelineCache cache = d.pipeline_cache();
+        if (!library || !cache) {
+            std::fprintf(stderr, "[rt] precompile: no shader library or pipeline cache\n");
+            ExitProcess(2);
+        }
+        std::vector<const leonida::ShaderEntry*> all;
+        std::set<std::string> names;
+        library->for_each_fspx([&](const leonida::ShaderEntry& e) {
+            if (e.stage == "cs" && e.name.rfind("library/", 0) == 0 && names.insert(e.name).second) all.push_back(&e);
+        });
+        std::sort(all.begin(), all.end(), [](auto* a, auto* b) { return a->name < b->name; });
+        const std::size_t start = std::min<std::size_t>(env_uint(L"LEONIDA_PRECOMPILE_START", 0), all.size());
+        const std::size_t count = std::min<std::size_t>(env_uint(L"LEONIDA_PRECOMPILE_COUNT", unsigned(all.size())),
+                                                        all.size() - start);
+        const VkPushConstantRange push{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(leonida::ShaderUserData)};
+        VkPipelineLayout layouts[2]{};  // [0] no set 0, [1] the bindless set 0
+        for (int with_set = 0; with_set < 2; ++with_set) {
+            VkPipelineLayoutCreateInfo info{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+            info.pushConstantRangeCount = 1;
+            info.pPushConstantRanges = &push;
+            VkDescriptorSetLayout set0 = with_set && d.bindless ? d.bindless->layout() : VK_NULL_HANDLE;
+            if (set0) {
+                info.setLayoutCount = 1;
+                info.pSetLayouts = &set0;
+            }
+            vk.vkCreatePipelineLayout(dev, &info, nullptr, &layouts[with_set]);
+        }
+        const auto save = [&] {
+            const auto path = pipeline_cache_path();
+            std::size_t size = 0;
+            if (path.empty() || vk.vkGetPipelineCacheData(dev, cache, &size, nullptr) != VK_SUCCESS || !size) return;
+            std::vector<char> blob(size);
+            if (vk.vkGetPipelineCacheData(dev, cache, &size, blob.data()) != VK_SUCCESS) return;
+            auto tmp = path;
+            tmp += L".precompile.tmp";
+            {
+                std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+                out.write(blob.data(), std::streamsize(size));
+                if (!out) {
+                    std::fprintf(stderr, "[rt] precompile: could not write %zu cache bytes\n", size);
+                    return;
+                }
+            }
+            if (MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+                std::fprintf(stderr, "[rt] precompile: wrote %zu bytes to pipeline_cache.bin\n", size);
+        };
+        std::fprintf(stderr, "[rt] precompile: %zu library compute programs, building [%zu, %zu) on %u threads\n",
+                     all.size(), start, start + count, threads);
+        std::atomic<std::size_t> built{0}, failed{0}, slow{0};
+        const ULONGLONG began = GetTickCount64();
+        constexpr std::size_t chunk = 125;
+        for (std::size_t at = start; at < start + count; at += chunk) {
+            const std::size_t end = std::min(at + chunk, start + count);
+            std::atomic<std::size_t> next{at};
+            std::vector<std::thread> workers;
+            for (unsigned t = 0; t < threads; ++t)
+                workers.emplace_back([&] {
+                    for (std::size_t i; (i = next.fetch_add(1)) < end;) {
+                        const leonida::ShaderEntry& e = *all[i];
+                        auto words = library->spirv(e);
+                        VkShaderModuleCreateInfo module_info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+                        module_info.codeSize = words.size() * 4;
+                        module_info.pCode = words.data();
+                        VkShaderModule module = VK_NULL_HANDLE;
+                        if (words.empty() || vk.vkCreateShaderModule(dev, &module_info, nullptr, &module) != VK_SUCCESS) {
+                            ++failed;
+                            continue;
+                        }
+                        std::vector<std::uint32_t>().swap(words);
+                        VkComputePipelineCreateInfo info{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+                        info.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+                        info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+                        info.stage.module = module;
+                        info.stage.pName = "main";
+                        VkPipelineShaderStageRequiredSubgroupSizeCreateInfo required_size{};
+                        leonida::apply_subgroup_request(leonida::decide_subgroup_size(e, d.info.subgroup),
+                                                        required_size, info.stage);
+                        info.layout = layouts[e.binding_count ? 1 : 0];
+                        const ULONGLONG t0 = GetTickCount64();
+                        VkPipeline pipeline = VK_NULL_HANDLE;
+                        const VkResult r = vk.vkCreateComputePipelines(dev, cache, 1, &info, nullptr, &pipeline);
+                        const ULONGLONG took = GetTickCount64() - t0;
+                        if (pipeline) vk.vkDestroyPipeline(dev, pipeline, nullptr);
+                        vk.vkDestroyShaderModule(dev, module, nullptr);
+                        if (r != VK_SUCCESS) {
+                            ++failed;
+                            std::fprintf(stderr, "[rt] precompile: %s failed (VkResult %d)\n", e.name.c_str(), int(r));
+                            continue;
+                        }
+                        ++built;
+                        if (took >= 2000) {
+                            ++slow;
+                            std::fprintf(stderr, "[rt] precompile: %s took %.1f s\n", e.name.c_str(), took / 1000.0);
+                        }
+                    }
+                });
+            for (auto& w : workers) w.join();
+            std::fprintf(stderr, "[rt] precompile: %zu of %zu done (%zu built, %zu slow, %zu failed) after %.0f s\n",
+                         end - start, count, built.load(), slow.load(), failed.load(),
+                         (GetTickCount64() - began) / 1000.0);
+            if (slow.exchange(0)) save();  // a chunk of cache hits adds nothing worth a 5 GB write
+        }
+        save();
+        std::fprintf(stderr, "[rt] precompile: finished\n");
+        std::fflush(stderr);
+        ExitProcess(0);
+    }
+
     HRESULT create_compute(const D3D12_COMPUTE_PIPELINE_STATE_DESC& desc) {
         auto& vk = device_.context->vk;
         const VkDevice dev = device_.info.device;
@@ -11269,6 +11428,13 @@ public:
             state_.bindless.reset();
             return false;
         }
+        PipelineState::precompile_library(state_);  // LEONIDA_PRECOMPILE_LIBRARY only; never returns then
+        if (PipelineState::env_flag(L"LEONIDA_PARK_NULL_WRITE"))
+            AddVectoredExceptionHandler(1, PipelineState::park_null_write);
+        // LEONIDA_PARK_TITLE_FAULTS=1: last in line, after the runtime's own handlers, any access violation still
+        // unhandled outside a loaded DLL parks its thread.
+        if (PipelineState::env_flag(L"LEONIDA_PARK_TITLE_FAULTS"))
+            AddVectoredExceptionHandler(0, PipelineState::park_title_fault);
         state_.context->set_bindless_release(
             [](void* user, std::uint32_t dim, std::uint32_t idx) {
                 auto* st = static_cast<DeviceState*>(user);

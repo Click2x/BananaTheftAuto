@@ -16949,6 +16949,8 @@ def reachable_code(insns, code_end=None):
             if k is None and nxt < code_end:
                 # The next words are ones llvm-mc could not decode (re-anchoring skipped them) and this instruction
                 # runs into them: ending the path here would drop every later store and export without a word.
+                if os.environ.get("RDNA2SPIRV_WHERE"):
+                    print(f"fall-through at 0x{nxt:x} after {ins['op']} at 0x{ins['pc']:x} in {globals().get('_WHERE_PATH')}", file=sys.stderr)
                 raise Unsupported("fall-through into undecodable words")
     return [insns[k] for k in sorted(seen)]
 
@@ -17583,16 +17585,21 @@ def restore_skipped_instructions(insns, blob, code_start, code_end):
     Instructions printed inside the words of a restored one are dropped. The instructions already carry
     their blob offsets in "pc"; returns the list sorted by it."""
     import rdna2_decode
-    covered = set()
+    covered, ends = set(), {}
     for ins in insns:
+        ends[ins["pc"]] = ins["pc"] + len(ins["enc"]) // 2
         if not ins.get("normalized"):
             covered.update(range(ins["pc"], ins["pc"] + len(ins["enc"]) // 2, 4))
     stop = min(len(blob), code_end if code_end is not None else len(blob))
-    restored, at = [], code_start
+    # resync: llvm-mc read the second word of a skipped instruction as the start of one of its own, which can reach
+    # past the skipped one into the real next instruction. That printed instruction is dropped with the restored
+    # span, so the words it swallowed beyond the span are decoded here too, whatever they are, up to its end.
+    restored, at, resync = [], code_start, 0
     while at + 8 <= stop:
         found = None if at in covered else rdna2_decode.decode_bytes(blob[at:min(at + 20, stop)])["insns"][:1]
         if found and found[0]["pc"] == 0 and (
-                (found[0]["op"].startswith("v_cmp_") and found[0]["op"].endswith("_f32_dpp"))
+                at < resync
+                or (found[0]["op"].startswith("v_cmp_") and found[0]["op"].endswith("_f32_dpp"))
                 # tedin7 (upstream PR #281): LLVM skips this VOP3P form. Admit only opcode 0x16,
                 # op_sel=2, op_sel_hi=5, no clamp or neg, with all reserved encoding bits clear.
                 or (found[0]["op"] == "v_dot4_i32_i8" and
@@ -17603,6 +17610,10 @@ def restore_skipped_instructions(insns, blob, code_start, code_end):
             if at + nbytes <= stop:
                 ins["pc"] = at
                 restored.append(ins)
+                for inner in range(at + 4, at + nbytes, 4):
+                    if ends.get(inner, 0) > at + nbytes:
+                        covered.difference_update(range(at + nbytes, ends[inner], 4))
+                        resync = max(resync, ends[inner])
                 at += nbytes
                 continue
         at += 4
@@ -17862,6 +17873,8 @@ def fspx_wave_size(path, name):
 
 
 def translate(path):
+    global _WHERE_PATH
+    _WHERE_PATH = path
     info = parse_file(path)
     stage = stage_of(info["name"], path)
     if stage not in ("vs", "ps", "cs", "ms", "gs"):
@@ -17890,7 +17903,8 @@ def translate(path):
                 while pos in bad and not same_encoding(blob[pos:pos + len(enc)], enc, op, operand_count):
                     pos += 4
                 window = blob[pos:pos + len(enc)]
-                if not same_encoding(window, enc, op, operand_count):
+                if not same_encoding(window, enc, op, operand_count) and \
+                        not restore_dot4_inline_sel(ins, window, enc):
                     literal = mix_literal(window, enc, base_op(op))
                     if literal is not None:
                         restore_mix_literal(ins, window, literal)
@@ -17944,6 +17958,10 @@ def translate(path):
         insns = fold_far_branches(insns)
         insns = reachable_code(insns, info.get("code_end"))
         if any(i.get("normalized") for i in insns):
+            if os.environ.get("RDNA2SPIRV_WHERE"):
+                for i in insns:
+                    if i.get("normalized"):
+                        print(f"normalized {i['op']} at 0x{i['pc']:x} enc {i['enc']} in {path}", file=sys.stderr)
             raise Unsupported("reachable instruction with normalized encoding")
     else:
         check_printed_encodings(path, info)

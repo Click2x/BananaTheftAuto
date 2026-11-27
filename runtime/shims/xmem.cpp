@@ -1972,6 +1972,24 @@ BOOL WINAPI XMemMapPhysicalPagesScatter(void* const* addresses, uint32_t page_co
 // calls with the same page make them. Every source page is looked up before any destination page changes, so a source
 // range that overlaps the destination maps what was there before the call. A destination in a GPU-only range is mapped
 // at its paired CPU range too (title_gpu_views), and a source page missing at a GPU-only address is looked up there.
+// With g_phys_mutex held: whether the CPU page at `cpu` (the twin of a GPU-only page a copy changes) holds a view the
+// title put there itself (physical, scatter, or a slot-31 copy aimed at it). The console's copy only edits the GPU-only
+// page table, so such a page must keep its contents; pages the mirror made, zero plants and holes follow the GPU side.
+bool keeps_title_page(uintptr_t cpu) {
+    const FaultLockShared faults;
+    uintptr_t base = 0;
+    const View* const view = covering_view(cpu, base);
+    const bool keep = view && !view->zero && view->owner != MapOwner::mirror;
+    if (keep) {
+        static std::atomic<uint64_t> kept{0};
+        const uint64_t n = kept.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (n <= 4 || (n & (n - 1)) == 0)
+            std::fprintf(stderr, "[rt] xmem: slot-31 copy kept the title's own page at 0x%llx (%llu so far)\n",
+                         static_cast<unsigned long long>(cpu), static_cast<unsigned long long>(n));
+    }
+    return keep;
+}
+
 bool copy_page_mappings(void* destination, const void* source, uint64_t pages, bool repeat_first) {
     const uintptr_t to = reinterpret_cast<uintptr_t>(destination);
     const uintptr_t from = reinterpret_cast<uintptr_t>(source);
@@ -1992,8 +2010,14 @@ bool copy_page_mappings(void* destination, const void* source, uint64_t pages, b
     const Window* const cpu_window = cpu_to != to ? find_window(cpu_to, pages * kPhysicalPageSize) : nullptr;
     if (!source) {
         for (uint64_t i = 0; i < pages; ++i) {
-            if (!unmap_page(to + i * kPhysicalPageSize)) return false;
-            if (cpu_window && !unmap_page(cpu_to + i * kPhysicalPageSize)) return false;
+            const uintptr_t cpu = cpu_to + i * kPhysicalPageSize;
+            {
+                const UnmapCause cause("CopyPageMappingsBatchX (unmap)");
+                if (!unmap_page(to + i * kPhysicalPageSize)) return false;
+            }
+            if (!cpu_window || keeps_title_page(cpu)) continue;
+            const UnmapCause cause("CopyPageMappingsBatchX (unmap CPU twin)");
+            if (!unmap_page(cpu)) return false;
         }
         return true;
     }
@@ -2016,8 +2040,10 @@ bool copy_page_mappings(void* destination, const void* source, uint64_t pages, b
     const DWORD cpu_protect = cpu_window ? view_protect(*cpu_window) : 0;
     for (uint64_t i = 0; i < pages; ++i) {
         const uint64_t page = found[static_cast<size_t>(i)];
+        const uintptr_t cpu = cpu_to + i * kPhysicalPageSize;
+        const UnmapCause cause(page ? "CopyPageMappingsBatchX (remap)" : "CopyPageMappingsBatchX (hole)");
         if (!map_page(to + i * kPhysicalPageSize, page, protect, MapOwner::slot31)) return false;
-        if (cpu_window && !map_page(cpu_to + i * kPhysicalPageSize, page, cpu_protect, MapOwner::mirror)) return false;
+        if (cpu_window && !keeps_title_page(cpu) && !map_page(cpu, page, cpu_protect, MapOwner::mirror)) return false;
     }
     return true;
 }

@@ -1069,6 +1069,13 @@ public:
         return all;
     }
 
+    // Every FSPX entry (fspx/, fspx_compute/, fspx_gfx/, library/), in no particular order.
+    template<typename F>
+    void for_each_fspx(F&& visit) const {
+        for (const auto& [key, list] : fspx_entries_)
+            for (const ShaderEntry& e : list) visit(e);
+    }
+
     // The size of the module's file in bytes, or 0 when it is missing: what spirv() would read, without reading it.
     std::size_t spirv_bytes(const ShaderEntry& entry) const {
         std::error_code ec;
