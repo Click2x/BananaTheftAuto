@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="496" viewBox="0 0 900 496" role="img" aria-label="Chart: on PortWatch&#x27;s milestone ladder, Banana Theft Auto has reached In the world, the furthest of the static recompilation projects; 12 compatibility-layer projects report Playable. Data 27 Nov 2026.">
+<defs><linearGradient id="c-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b0638"/><stop offset="1" stop-color="#3a0f5e"/></linearGradient></defs>
+<rect width="900" height="496" rx="18" fill="url(#c-bg)"/>
+<text x="40" y="44" font-family="Arial Black, Impact, Segoe UI, sans-serif" font-weight="900" font-size="22" letter-spacing="2" fill="#ffe14d">HOW FAR THE GTA VI PC PROJECTS HAVE GOT</text>
+<text x="40" y="68" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#d9c6f0">Furthest stage each project reports, on PortWatch's milestone ladder</text>
+<g font-family="Segoe UI, Arial, sans-serif">
+<line x1="250.0" y1="132" x2="250.0" y2="268" stroke="#5a3a80" stroke-width="1" stroke-dasharray="0"/>
+<line x1="250.0" y1="296" x2="250.0" y2="398" stroke="#5a3a80" stroke-width="1" stroke-dasharray="0"/>
+<text x="250.0" y="96" text-anchor="middle" font-size="12" fill="#bba6d9">Groundwork</text>
+<line x1="354.0" y1="132" x2="354.0" y2="268" stroke="#5a3a80" stroke-width="1" stroke-dasharray="3 4"/>
+<line x1="354.0" y1="296" x2="354.0" y2="398" stroke="#5a3a80" stroke-width="1" stroke-dasharray="3 4"/>
+<text x="354.0" y="96" text-anchor="middle" font-size="12" fill="#bba6d9">Exe runs</text>
+<line x1="458.0" y1="132" x2="458.0" y2="268" stroke="#5a3a80" stroke-width="1" stroke-dasharray="3 4"/>
+<line x1="458.0" y1="296" x2="458.0" y2="398" stroke="#5a3a80" stroke-width="1" stroke-dasharray="3 4"/>
+<text x="458.0" y="96" text-anchor="middle" font-size="12" fill="#bba6d9">First frame</text>
+<line x1="562.0" y1="132" x2="562.0" y2="268" stroke="#5a3a80" stroke-width="1" stroke-dasharray="3 4"/>
+<line x1="562.0" y1="296" x2="562.0" y2="398" stroke="#5a3a80" stroke-width="1" stroke-dasharray="3 4"/>
+<text x="562.0" y="96" text-anchor="middle" font-size="12" fill="#bba6d9">Main menu</text>
+<line x1="666.0" y1="132" x2="666.0" y2="268" stroke="#5a3a80" stroke-width="1" stroke-dasharray="3 4"/>
+<line x1="666.0" y1="296" x2="666.0" y2="398" stroke="#5a3a80" stroke-width="1" stroke-dasharray="3 4"/>
+<text x="666.0" y="96" text-anchor="middle" font-size="12" fill="#bba6d9">In the world</text>
+<line x1="770.0" y1="132" x2="770.0" y2="268" stroke="#5a3a80" stroke-width="1" stroke-dasharray="3 4"/>
+<line x1="770.0" y1="296" x2="770.0" y2="398" stroke="#5a3a80" stroke-width="1" stroke-dasharray="3 4"/>
+<text x="770.0" y="96" text-anchor="middle" font-size="12" fill="#bba6d9">Playable</text>
+<text x="40" y="118" font-size="13" font-weight="700" letter-spacing="1.5" fill="#ffe14d">STATIC RECOMPILATION (BTA&#x27;S APPROACH)</text>
+<text x="236" y="154.0" text-anchor="end" font-size="15" font-weight="700" fill="#fff6d6">Banana Theft Auto *</text>
+<rect x="250" y="141.0" width="416.0" height="16" rx="4" fill="#ffe14d"><title>Banana Theft Auto *: In the world</title></rect>
+<text x="674.0" y="154.0" font-size="13" font-weight="700" fill="#fff6d6">In the world</text>
+<text x="236" y="188.0" text-anchor="end" font-size="15" font-weight="400" fill="#d9c6f0">Xbox2Windows</text>
+<rect x="250" y="175.0" width="260.0" height="16" rx="4" fill="#8d6bb8"><title>Xbox2Windows: First frame → Main menu</title></rect>
+<text x="518.0" y="188.0" font-size="13" font-weight="400" fill="#bba6d9">First frame → Main menu</text>
+<text x="236" y="222.0" text-anchor="end" font-size="15" font-weight="400" fill="#d9c6f0">Palmetto</text>
+<rect x="250" y="209.0" width="104.0" height="16" rx="4" fill="#8d6bb8"><title>Palmetto: Exe runs</title></rect>
+<text x="362.0" y="222.0" font-size="13" font-weight="400" fill="#bba6d9">Exe runs</text>
+<text x="236" y="256.0" text-anchor="end" font-size="15" font-weight="400" fill="#d9c6f0">DedSec</text>
+<rect x="250" y="243.0" width="4.0" height="16" rx="4" fill="#8d6bb8"><title>DedSec: Groundwork</title></rect>
+<text x="262.0" y="256.0" font-size="13" font-weight="400" fill="#bba6d9">Groundwork</text>
+<text x="40" y="282" font-size="13" font-weight="700" letter-spacing="1.5" fill="#bba6d9">OTHER APPROACHES, FOR REFERENCE</text>
+<text x="236" y="318.0" text-anchor="end" font-size="15" font-weight="400" fill="#d9c6f0">12 compatibility-layer projects</text>
+<rect x="250" y="305.0" width="520.0" height="16" rx="4" fill="#8d6bb8"><title>12 compatibility-layer projects: Playable</title></rect>
+<text x="778.0" y="318.0" font-size="13" font-weight="400" fill="#bba6d9">all at Playable</text>
+<text x="236" y="352.0" text-anchor="end" font-size="15" font-weight="400" fill="#d9c6f0">XCL</text>
+<rect x="250" y="339.0" width="364.0" height="16" rx="4" fill="#8d6bb8"><title>XCL: Main menu → In the world</title></rect>
+<text x="622.0" y="352.0" font-size="13" font-weight="400" fill="#bba6d9">Main menu → In the world</text>
+<text x="236" y="386.0" text-anchor="end" font-size="15" font-weight="400" fill="#d9c6f0">Five Star Recomp</text>
+<rect x="250" y="373.0" width="312.0" height="16" rx="4" fill="#8d6bb8"><title>Five Star Recomp: Main menu</title></rect>
+<text x="570.0" y="386.0" font-size="13" font-weight="400" fill="#bba6d9">Main menu</text>
+<text x="40" y="414" font-size="12" fill="#bba6d9">Milestones and other projects: PortWatch (gta6port.app, github.com/4lwayz/portwatch-vi), data 27 Nov 2026.</text>
+<text x="40" y="432" font-size="12" fill="#bba6d9">Each project&#x27;s stage is what its own developers report; nobody has tested them all on one PC.</text>
+<text x="40" y="450" font-size="12" fill="#bba6d9">* BTA isn&#x27;t listed by PortWatch. We placed it with PortWatch&#x27;s published milestone rules.</text>
+<text x="40" y="468" font-size="12" fill="#bba6d9">Unofficial fan project. Not affiliated with Rockstar Games or Take-Two.</text>
+</g>
+</svg>
