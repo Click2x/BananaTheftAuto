@@ -9580,8 +9580,10 @@ public:
         }
         std::vector<const leonida::ShaderEntry*> all;
         std::set<std::string> names;
+        // LEONIDA_PRECOMPILE_HONOR_SKIP=1: the precompile leaves out LEONIDA_SKIP_COMPUTE programs too.
+        const bool honor_skip = env_flag(L"LEONIDA_PRECOMPILE_HONOR_SKIP");
         library->for_each_fspx([&](const leonida::ShaderEntry& e) {
-            if (e.stage == "cs" && e.name.rfind("library/", 0) == 0 && (precompile || !skip_compute(e.name)) &&
+            if (e.stage == "cs" && e.name.rfind("library/", 0) == 0 && ((precompile && !honor_skip) || !skip_compute(e.name)) &&
                 names.insert(e.name).second)
                 all.push_back(&e);
         });
