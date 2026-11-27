@@ -36,6 +36,12 @@ Then double-click `Leonida.bat`. Python 3.12 or newer is needed; the menu offers
 
 A ZIP copy can't update itself. Clone it once with the command above, and Update works from then on.
 
+## Lost power or crashed mid-build?
+
+Nothing is lost: finished steps are kept. Open the menu and press **C (Check my build)**. It shows what is still good,
+what is out of date and what was interrupted, and offers to clean up the leftovers. Then choose **Start** and the build
+carries on from where it stopped.
+
 ## Problems?
 
 - **"git is not recognized"**: install Git from https://git-scm.com, or run `winget install --id Git.Git -e`.

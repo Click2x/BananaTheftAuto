@@ -20,6 +20,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 import make_game as mg  # noqa: E402  (importing it runs nothing; main() is guarded)
 import bta_update  # noqa: E402  (Banana Theft Auto: Update)
+import bta_buildcheck  # noqa: E402  (Banana Theft Auto: Check my build)
 
 DATA = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "Leonida")
 SETTINGS = os.path.join(DATA, "settings.json")
@@ -1331,6 +1332,61 @@ def screen_update(st):
     result_screen(st, code, log_path)
 
 
+def screen_buildcheck(st):
+    heading("Check my build")
+    note("Looks at your build after a power cut, a crash or an update: what is still good, what is out of date, and "
+         "what an interrupted run left behind. Nothing is deleted unless you say yes.")
+    out, _ = run_folder(st)
+    work = st.get("work") or os.path.join(out, "work")
+    p("   " + paint("Checking " + out + " and " + work + " ...", 245))
+    head = bta_update.commit_info(ROOT)["hash"] if bta_update.is_checkout(ROOT) and bta_update.commit_info(ROOT) else None
+    sh, sh_why = bta_buildcheck.shader_state(work, mg)
+    rt, rt_why = bta_buildcheck.runtime_state(out, (st.get("built") or {}).get("runtime"), head)
+    ca, ca_why = bta_buildcheck.cache_state(out)
+    tone = {"current": "ok", "ok": "ok", "missing": "info", "none": "info", "unknown": "info",
+            "interrupted": "warn", "outdated": "warn", "broken": "bad"}
+    p()
+    line(tone[sh], "Shaders: " + sh, sh_why)
+    line(tone[rt], "Game runtime: " + rt, rt_why)
+    line(tone[ca], "Shader cache: " + ca, ca_why)
+    junk = bta_buildcheck.leftovers(out, work)
+    junk_bytes = sum(b for _, b, _ in junk)
+    if junk:
+        line("warn", "%d leftover file(s) from an interrupted run (%s)" % (len(junk), bta_buildcheck.gb(junk_bytes)),
+             shorten(junk[0][0], 60))
+    else:
+        line("ok", "No leftovers from interrupted runs")
+    p()
+    if sh == "interrupted" or (rt in ("missing",) and sh != "missing"):
+        note("Your finished steps are kept. Choose Start and the build carries on from where it stopped.")
+    if junk and yesno("Delete the %d leftover file(s) (%s)" % (len(junk), bta_buildcheck.gb(junk_bytes)), True):
+        gone = 0
+        for path, _, _ in junk:
+            try:
+                os.remove(path)
+                gone += 1
+            except OSError:
+                pass
+        line("ok", "Deleted %d file(s)" % gone)
+    if ca == "broken" and yesno("Delete the damaged shader cache (it is rebuilt on the next run)", True):
+        try:
+            os.remove(os.path.join(out, "pipeline_cache.bin"))
+            line("ok", "Deleted; the next run builds it again")
+        except OSError as e:
+            line("bad", "Could not delete it", str(e))
+    old = bta_buildcheck.obsolete_translation(work, mg)
+    if old:
+        path, size = old
+        note("The translated shaders are from an older version and will be made again on the next Start anyway. "
+             "Deleting them now frees the space early; the slow unpacking and disassembly are kept.")
+        if yesno("Delete the out-of-date translated shaders (%s)" % bta_buildcheck.gb(size), False):
+            shutil.rmtree(path, ignore_errors=True)
+            line("ok", "Deleted " + path)
+    if rt == "outdated" or sh == "outdated":
+        note("To bring it up to date: choose Update (it rebuilds only what changed), or Start.")
+    pause()
+
+
 def run_folder(st):
     """The built port folder (gta6rt.exe and game_path.txt) and where run logs go."""
     out = st.get("out") or DOCS_OUT
@@ -1460,7 +1516,8 @@ def help_screen():
 
 HOME = [[("1", "Start", "your game, then build"), ("s", "Shaders only", "run just the shader step"),
          ("r", "Run the game", "start the built port and log it")],
-        [("u", "Update", "get the latest version from GitHub"), ("2", "Check this PC", "hardware, drives, tools"),
+        [("u", "Update", "get the latest version from GitHub"), ("c", "Check my build", "after a power cut, crash or update"),
+         ("2", "Check this PC", "hardware, drives, tools"),
          ("3", "Find my game copy", "I look for it for you")],
         [("4", "What can be installed", "every tool and its source"), ("5", "Settings", "folders and speed"), ("6", "Help", "")],
         [("q", "Quit", "")]]
@@ -1485,6 +1542,8 @@ def home():
                 screen_run(st)
             elif k == "u":
                 screen_update(st)
+            elif k == "c":
+                screen_buildcheck(st)
             elif k == "2":
                 screen_check(st)
             elif k == "3":
@@ -1530,6 +1589,8 @@ def main():
     try:
         if "--preview" in sys.argv:
             preview()
+        elif "--check" in sys.argv:
+            screen_buildcheck(load())
         elif "--update" in sys.argv:
             screen_update(load())
         elif "--pc" in sys.argv:
