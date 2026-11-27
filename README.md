@@ -12,31 +12,34 @@ own runtime and shader fixes. It does not contain, download or share any game fi
 > **Watch the build live: join the Part Time Heroes on Discord → https://discord.gg/ppNRZDSda**
 > It's the community where the Banana Theft Auto build is streamed, with progress posted as it happens.
 
-> **Status (2026-11-26): early, the game does not play yet, but it is loading the world.** On the author's PC (RTX 3090) the recompiled
-> title loads, draws its own screens with its real shaders, fonts and textures, takes controller input and goes through its first-run
-> setup. As of 2026-11-26 it gets past the loading-screen stops of the day before: for the first time it ran a full 15-minute test
-> without crashing and went on into loading the world. No world picture yet.
+> **Status (2026-11-27): early, the game does not play yet, but the world is on screen.** On the author's PC (RTX 3090) the
+> recompiled title boots, goes through its menus and loading screens and plays its opening cinematic: sky, clouds, the sun, the city
+> lights, and now buildings, poles and ground. Runs last 15-40 minutes without crashing, and shaders are prepared up front behind a
+> loading screen. The picture is still rough: some frames flash white or black, and frames take seconds each.
 
 ### What we're working on now
 
-- **The world load.** The game now gets into loading the world, then stops when the graphics card hangs on work the game queues at
-  the start of the world. That hang is the current blocker, and we're narrowing down which part of that work causes it.
-- **Fixes from today:** several crashes during loading are fixed, including missing graphics effects the game asks for while it loads
-  and a memory bug in streaming. Each run now gets further than the one before.
+- **A clean picture.** Frames still switch between a correct image, a white blow-out and black. That's the current focus.
+- **The rest of the world.** Water, ground and more of the world's drawing are coming through as we fix the parts of the game's
+  drawing that were being skipped.
 
 ### What to expect next
 
-- **The first world picture** is the next milestone and the next screenshot we hope to share. It will be very slow at first: during
-  the world load the game runs at well under 1 frame a second.
+- **A fully drawn opening scene** is the next screenshot we hope to share.
 - **Then speed.** The goal after that is 30 fps (the gauge below measures the menus). Gameplay, audio and anything playable come after.
 - **No dates.** We post progress here as it's measured, not before.
 
 How we got here, problem by problem: **[DEVLOG.md](DEVLOG.md)**. Community updates: **[ANNOUNCEMENTS.md](ANNOUNCEMENTS.md)**.
 
 <p align="center">
-<img src="docs/banana/journey.svg" width="49%" alt="Where we are: boots, first picture, controller, menus and loading screens done; loading the world now; first world picture and 30 fps ahead">
+<img src="docs/banana/journey.svg" width="49%" alt="Where we are: boots, first picture, controller, menus, loading screens and the first world picture done; cleaning up the picture now; 30 fps ahead">
 <img src="docs/banana/fps_goal.svg" width="49%" alt="Road to 30 fps: 8.5 of 30 fps on the menus, 28 percent">
 </p>
+
+<p align="center">
+<img src="docs/screenshots/2026-11-27-ground-and-buildings.png" width="98%" alt="The opening scene with buildings, poles and ground drawing">
+</p>
+<p align="center"><sub>2026-11-27: buildings, poles and ground now draw in the opening scene. Still rough: speckles over the sky.</sub></p>
 
 <p align="center">
 <img src="docs/screenshots/2026-11-26-first-world.png" width="98%" alt="First world render: the opening cinematic's night skyline over water, with the credits">
@@ -70,8 +73,12 @@ How we got here, problem by problem: **[DEVLOG.md](DEVLOG.md)**. Community updat
 | ✅ | Banana window with a live fps counter | done 2026-11-25 |
 | ✅ | A full 15-minute run without a crash | done 2026-11-26 |
 | ✅ | Past the loading screens, into the world load | done 2026-11-26 |
-| 🔧 | Get through the world load (graphics card hang at world start) | in progress |
-| ⬜ | **First world picture** | next |
+| ✅ | Through the world load, no graphics card hang | done 2026-11-26 |
+| ✅ | **First world picture**: the opening cinematic | done 2026-11-26 |
+| ✅ | Shaders prepared up front behind a loading screen | done 2026-11-26 |
+| ✅ | Buildings, poles and ground drawing | done 2026-11-27 |
+| 🔧 | A clean picture (no white or black flashes) | in progress |
+| ⬜ | Fully drawn opening scene | next |
 | ⬜ | Gameplay on screen | after that |
 | ⬜ | 30 fps | later |
 | ⬜ | Audio | later |
