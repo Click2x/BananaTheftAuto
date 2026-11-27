@@ -7,6 +7,7 @@
 // back into the blob (d3d12_xs_rootsig.h).
 // D3D12XboxCreateDevice returns an Xbox-ABI proxy (d3d12_xs_device.h) over the PC device; only the measured slots
 // are overridden, the rest follow the PC vtable.
+#include "bta_build_id.h"
 #include <windows.h>
 #include <d3d12.h>
 
@@ -162,10 +163,11 @@ static void start_banana_frame(HWND window, rt::d3d12::XboxPresentation* xbox) {
             const double loading = leonida::loading::enabled() ? phase.progress() : -1.0;
             if (loading >= 0)
                 std::swprintf(title, std::size(title),
-                              L"\U0001F34C Banana Theft Auto \U0001F34C   %.1f fps   loading shaders %d%%", fps,
-                              int(loading * 100));
+                              L"\U0001F34C Banana Theft Auto \U0001F34C   %.1f fps   loading shaders %d%%   build " BTA_BUILD_ID_W,
+                              fps, int(loading * 100));
             else
-                std::swprintf(title, std::size(title), L"\U0001F34C Banana Theft Auto \U0001F34C   %.1f fps", fps);
+                std::swprintf(title, std::size(title),
+                              L"\U0001F34C Banana Theft Auto \U0001F34C   %.1f fps   build " BTA_BUILD_ID_W, fps);
             // The title's window class is ANSI, so SetWindowTextW would pass through its window procedure as ANSI and the
             // bananas would become "??". DefWindowProcW stores the caption as Unicode without going through it.
             DefWindowProcW(window, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(title));

@@ -48,6 +48,15 @@ def commit_info(root, ref="HEAD"):
     return {"hash": full, "short": short, "date": date, "subject": subject}
 
 
+def build_id(root):
+    """This folder's build id, as the runtime shows it: "2026.11.27-c246593c9" (the commit's date and short id), with
+    "+changes" when tracked files are edited. "unknown" for a folder that is not a git checkout."""
+    info = commit_info(root) if is_checkout(root) else None
+    if not info:
+        return "unknown"
+    return info["date"].replace("-", ".") + "-" + info["short"] + ("+changes" if local_changes(root) else "")
+
+
 def local_changes(root):
     """Tracked files changed here (untracked files are ignored: an update never touches them)."""
     code, out = git(root, "status", "--porcelain", "--untracked-files=no")

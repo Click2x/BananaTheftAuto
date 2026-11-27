@@ -21,6 +21,7 @@ sys.path.insert(0, ROOT)
 import make_game as mg  # noqa: E402  (importing it runs nothing; main() is guarded)
 import bta_update  # noqa: E402  (Banana Theft Auto: Update)
 import bta_buildcheck  # noqa: E402  (Banana Theft Auto: Check my build)
+BUILD_ID = bta_update.build_id(ROOT)   # the same id the runtime shows in its window and log
 
 DATA = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "Leonida")
 SETTINGS = os.path.join(DATA, "settings.json")
@@ -189,6 +190,7 @@ def banner():
     p(pframe(prow()))
     p(pframe(sunset_row()))
     p(pframe(prow((" Grand Theft Auto VI, built from your own copy", CREAM))))
+    p(pframe(prow((" Banana Theft Auto  build " + BUILD_ID, GOLD))))
     for line in ("built on ubiquitarianism/leonida", "GPL-3.0  " + T.s["dot"] + "  not affiliated with Rockstar Games or Take-Two"):
         p(pframe(prow((" " + line, LAVENDER))))
     p(pbot())
@@ -1265,11 +1267,11 @@ def screen_update(st):
         return
     cur, latest = s["current"], s["latest"]
     if cur:
-        line("ok", "Your version:   %s  (%s)" % (cur["short"], cur["date"]), shorten(cur["subject"], 50))
+        line("ok", "Your build:     " + bta_update.build_id(ROOT), shorten(cur["subject"], 50))
     if s["error"]:
         line("warn", "Could not reach GitHub.", shorten(s["error"], 70))
     elif latest:
-        line("ok" if not s["behind"] else "warn", "Latest version: %s  (%s)" % (latest["short"], latest["date"]),
+        line("ok" if not s["behind"] else "warn", "Latest build:   %s-%s" % (latest["date"].replace("-", "."), latest["short"]),
              "you are up to date" if not s["behind"] else "%d update(s) available" % s["behind"])
     for step in s["rebuild"]:
         line("warn", "Your built %s is older than this folder's code." % ("shaders" if step == "shaders" else "game runtime"),

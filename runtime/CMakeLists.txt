@@ -202,6 +202,15 @@ if(WIN32 AND LEONIDA_BUILD_WINDOWS_RUNTIME)
     shims/xapu_chad.cpp
     shims/dstorage.cpp
   )
+  # Banana Theft Auto build id (cmake/bta_build_id.cmake): written every build, so it never goes stale.
+  set(BTA_BUILD_ID_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/bta_build_id.h")
+  add_custom_target(bta_build_id ALL
+    COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_CURRENT_SOURCE_DIR} -DOUT=${BTA_BUILD_ID_HEADER}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/bta_build_id.cmake
+    BYPRODUCTS ${BTA_BUILD_ID_HEADER}
+    COMMENT "Banana Theft Auto build id")
+  add_dependencies(gta6rt bta_build_id)
+  target_include_directories(gta6rt PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
   # These sources use __try to handle access violations. MSVC always catches them; clang-cl needs asynchronous
   # exceptions (as for tiny_dll below). A source file property also applies to dstorage_test.
   set_source_files_properties(shims/dstorage.cpp src/thread_stacks.cpp

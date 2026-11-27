@@ -16,6 +16,7 @@
 //
 // --game-dir is also where a title's GAME: paths read from; anything it writes or deletes goes to the overlay
 // (--overlay, default <game-dir>/overlay) so the package is never modified (shims/file_system.cpp).
+#include "bta_build_id.h"
 #include <windows.h>
 
 #include <cstdint>
@@ -251,6 +252,7 @@ static BOOL WINAPI show_package_window(HWND window, int command) {
 #endif
 
 int wmain(int argc, wchar_t** argv) {
+    std::fprintf(stderr, "[rt] Banana Theft Auto build %s\n", BTA_BUILD_ID);
     // LEONIDA_FULLSCREEN: the process is per-monitor DPI aware, so the borderless window and its frames are the
     // display's real pixel size, not the size Windows scaling reports to an unaware process.
     if (const wchar_t* fs = _wgetenv(L"LEONIDA_FULLSCREEN"); fs && *fs && *fs != L'0')

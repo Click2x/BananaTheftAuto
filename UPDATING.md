@@ -24,6 +24,15 @@ From now on you don't need the command window. Just open the menu and press **U 
 5. If the update needs a rebuild, press **Y** and it rebuilds only what changed.
 6. Close the menu and open `Leonida.bat` again so you're running the newest menu.
 
+## Which build do I have?
+
+Every build has an id like `2026.11.27-c246593c9` (the date and the commit). You'll see it:
+- at the top of the menu (`Leonida.bat`) and on the Update screen,
+- in the game window's title bar, next to the fps,
+- in the first line of a run's log (`[rt] Banana Theft Auto build ...`).
+
+`+changes` after the id means files in your copy were edited. Quote the id when you report a problem.
+
 ## New here?
 
 ```
