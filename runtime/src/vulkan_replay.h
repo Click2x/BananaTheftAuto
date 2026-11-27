@@ -1099,6 +1099,9 @@ struct ReplayFunctions {
     PFN_vkCmdDraw draw = nullptr;
     unsigned* mesh_draw_count = nullptr;  // opt-in count for this submission
     PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks = nullptr;  // VK_EXT_mesh_shader; null: mesh draws are unsupported
+    // ExecuteIndirect with a DISPATCH_MESH signature; its 12-byte record is VkDrawMeshTasksIndirectCommandEXT.
+    PFN_vkCmdDrawMeshTasksIndirectEXT draw_mesh_tasks_indirect = nullptr;
+    PFN_vkCmdDrawMeshTasksIndirectCountEXT draw_mesh_tasks_indirect_count = nullptr;
     PFN_vkCmdDrawIndexed draw_indexed = nullptr;
     std::function<const GraphicsPipeline*(std::uintptr_t)> graphics_pipeline;
     // The buffer and offset a console VA range starts in (from ResourceBinding::va), false when none does. `size` is
@@ -2532,7 +2535,9 @@ ReplayResult prepare_draw(const Draw& draw, const IndirectDrawArgs* arguments, R
                           const ReplayFunctions& vk, PreparedDraw& p) {
     if (arguments) {
         const IndirectDrawArgs& arg = *arguments;
-        const VkDeviceSize record_size = draw.indexed ? sizeof(VkDrawIndexedIndirectCommand) : sizeof(VkDrawIndirectCommand);
+        const VkDeviceSize record_size = draw.mesh      ? sizeof(VkDrawMeshTasksIndirectCommandEXT)
+                                         : draw.indexed ? sizeof(VkDrawIndexedIndirectCommand)
+                                                        : sizeof(VkDrawIndirectCommand);
         if (!arg.argument_buffer || !arg.max_count || arg.stride < record_size ||
             (arg.stride | arg.argument_offset | arg.count_offset) % 4 || (!arg.count_buffer && arg.count_offset))
             return ReplayResult::invalid_indirect_arguments;
@@ -2540,8 +2545,10 @@ ReplayResult prepare_draw(const Draw& draw, const IndirectDrawArgs* arguments, R
         // independently of the supplied maxDrawCount. On a device with a smaller limit an
         // arbitrary D3D12 count requires a GPU clamp pass; keep that case guarded for now.
         const bool counted = arg.count_buffer != 0;
-        const bool entry_available = counted ? (draw.indexed ? vk.draw_indexed_indirect_count : vk.draw_indirect_count) != nullptr
-                                             : (draw.indexed ? vk.draw_indexed_indirect : vk.draw_indirect) != nullptr;
+        const bool entry_available =
+            draw.mesh ? (counted ? vk.draw_mesh_tasks_indirect_count != nullptr : vk.draw_mesh_tasks_indirect != nullptr)
+            : counted ? (draw.indexed ? vk.draw_indexed_indirect_count : vk.draw_indirect_count) != nullptr
+                      : (draw.indexed ? vk.draw_indexed_indirect : vk.draw_indirect) != nullptr;
         // The GPU supplies firstIndex/indexCount at execution (VUID-08798). A sized binding alone
         // does not guarantee a robust fetch, and the legacy binding covers the backing buffer's tail.
         const auto skip = [&](indirect_stats::Reason reason) {
@@ -2549,9 +2556,11 @@ ReplayResult prepare_draw(const Draw& draw, const IndirectDrawArgs* arguments, R
             p.skipped = true;
             return ReplayResult::success;
         };
-        if (draw.mesh) return skip(indirect_stats::mesh);
-        if (draw.topology != 4) return skip(indirect_stats::topology);
-        if (!vk.draw_indirect_first_instance) return skip(indirect_stats::first_instance);
+        // A mesh draw has no topology, first instance or index buffer. Its records always go through the clamp pass,
+        // which bounds x and sets y = z = 1 (the console's mesh dispatch is one-dimensional), or it is not drawn.
+        if (draw.mesh && (!entry_available || !leonida::indirect_clamp_enabled())) return skip(indirect_stats::mesh);
+        if (!draw.mesh && draw.topology != 4) return skip(indirect_stats::topology);
+        if (!draw.mesh && !vk.draw_indirect_first_instance) return skip(indirect_stats::first_instance);
         if (!entry_available) return skip(indirect_stats::entry);
         if (draw.indexed && !vk.bind_robust_index_view) return skip(indirect_stats::robust_index);
         if (arg.max_count > vk.max_draw_indirect_count) return skip(indirect_stats::count_limit);
@@ -4004,19 +4013,25 @@ ReplayResult prepare(const CommandList& list, Resolve&& resolve, const ReplayFun
                 if (const auto r = detail::prepare_quad_indices(*draw.state, vk, prepared_draw); r != ReplayResult::success)
                     return r;
             }
-            if (draw.arguments && !prepared_draw.skipped && vk.require_indirect_clamp) {
+            const bool mesh_indirect = draw.arguments && draw.state->mesh;
+            if (draw.arguments && !prepared_draw.skipped && (vk.require_indirect_clamp || mesh_indirect)) {
                 const auto& arg = *draw.arguments;
                 if (!vk.prepare_indirect_clamp || !vk.emit_indirect_clamp || (statistics_active && !statistics_helpers) ||
                     !vk.prepare_indirect_clamp(prepared_draw.indirect_buffer, prepared_draw.indirect_offset,
                         prepared_draw.indirect_count_buffer, prepared_draw.indirect_count_offset,
-                        draw.state->indexed ? indirect_clamp_draw_indexed : indirect_clamp_draw,
-                        arg.stride, arg.max_count, p.indirect_clamp))
-                    return unsupported_at(__LINE__);
-                p.indirect_clamp.share_list_budget(indirect_list_budget);
-                prepared_draw.indirect_buffer = p.indirect_clamp.buffer;
-                prepared_draw.indirect_offset = p.indirect_clamp.offset;
-                prepared_draw.indirect_count_buffer = p.indirect_clamp.count_buffer;
-                prepared_draw.indirect_count_offset = p.indirect_clamp.count_offset;
+                        mesh_indirect ? 3u : draw.state->indexed ? indirect_clamp_draw_indexed : indirect_clamp_draw,
+                        arg.stride, arg.max_count, p.indirect_clamp)) {
+                    if (!mesh_indirect) return unsupported_at(__LINE__);
+                    // Unclamped, a mesh record's y and z are whatever the title left there: not drawn.
+                    indirect_stats::skip(indirect_stats::Event::replay_skip, indirect_stats::mesh);
+                    prepared_draw.skipped = true;
+                } else {
+                    p.indirect_clamp.share_list_budget(indirect_list_budget);
+                    prepared_draw.indirect_buffer = p.indirect_clamp.buffer;
+                    prepared_draw.indirect_offset = p.indirect_clamp.offset;
+                    prepared_draw.indirect_count_buffer = p.indirect_clamp.count_buffer;
+                    prepared_draw.indirect_count_offset = p.indirect_clamp.count_offset;
+                }
             }
         }
     }
@@ -5248,7 +5263,16 @@ inline void emit_commands(const PreparedList& prepared, VkCommandBuffer command_
                     vk.bind_robust_index_view(command_buffer, d.index_buffer, d.index_offset, bytes, d.index_type);
                 }
                 const auto stride = p.indirect_clamp.buffer ? p.indirect_clamp.stride : arg.stride;
-                if (arg.count_buffer) {
+                if (draw->mesh) {
+                    if (arg.count_buffer)
+                        vk.draw_mesh_tasks_indirect_count(command_buffer, d.indirect_buffer, d.indirect_offset,
+                                                          d.indirect_count_buffer, d.indirect_count_offset, arg.max_count,
+                                                          stride);
+                    else
+                        vk.draw_mesh_tasks_indirect(command_buffer, d.indirect_buffer, d.indirect_offset, arg.max_count,
+                                                    stride);
+                    if (vk.mesh_draw_count) ++*vk.mesh_draw_count;
+                } else if (arg.count_buffer) {
                     const auto emit_counted = draw->indexed ? vk.draw_indexed_indirect_count : vk.draw_indirect_count;
                     emit_counted(command_buffer, d.indirect_buffer, d.indirect_offset, d.indirect_count_buffer,
                                  d.indirect_count_offset, arg.max_count, stride);

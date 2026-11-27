@@ -11,6 +11,7 @@
 // Page table (its own buffer): level 1, 65536 u32 indexed by offset bits 47..32 (0: nothing backed in that 4 GiB,
 // n: level-2 block n - 1); level 2 blocks of 2^20 bits, one per 4 KiB page, at kL1Bytes + (n - 1) * kBlockBytes.
 // The shader side is Gen.guard_function in tools/rdna2spirv.py; the two must agree on these numbers.
+#include <windows.h>
 #include <vulkan/vulkan.h>
 
 #include <atomic>
@@ -50,6 +51,14 @@ struct Registry {
     PFN_vkCreateBuffer create = nullptr;
     PFN_vkDestroyBuffer destroy = nullptr;
     PFN_vkGetBufferDeviceAddress address = nullptr;
+    // The last destroyed buffers that had an address (diagnostic: naming the shaders' refusals).
+    struct Gone {
+        VkDeviceAddress address = 0;
+        std::uint64_t bytes = 0;
+        unsigned long long at = 0;  // GetTickCount64
+    };
+    Gone gone[4096]{};
+    std::uint64_t gone_next = 0;
 };
 
 inline Registry& registry() {
@@ -75,7 +84,10 @@ inline VKAPI_ATTR void VKAPI_CALL destroy_buffer(VkDevice device, VkBuffer buffe
         std::lock_guard lock(r.mutex);
         const auto it = r.buffers.find(buffer);
         if (it != r.buffers.end()) {
-            if (it->second.second) r.version.fetch_add(1, std::memory_order_release);
+            if (it->second.second) {
+                r.version.fetch_add(1, std::memory_order_release);
+                r.gone[r.gone_next++ % 4096] = {it->second.second, it->second.first, GetTickCount64()};
+            }
             r.buffers.erase(it);
         }
     }
@@ -94,6 +106,19 @@ inline VKAPI_ATTR VkDeviceAddress VKAPI_CALL buffer_address(VkDevice device, con
         }
     }
     return address;
+}
+
+// The latest destroyed buffer that held `address`, if any of the last 4096 did.
+inline bool destroyed_holding(VkDeviceAddress address, Registry::Gone& out) {
+    Registry& r = registry();
+    std::lock_guard lock(r.mutex);
+    bool found = false;
+    for (const Registry::Gone& g : r.gone)
+        if (g.bytes && address >= g.address && address - g.address < g.bytes && (!found || g.at > out.at)) {
+            out = g;
+            found = true;
+        }
+    return found;
 }
 
 // Called by VulkanDeviceFunctions::load: routes buffer creation, destruction and address queries through the registry.

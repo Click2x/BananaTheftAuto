@@ -106,6 +106,7 @@ PC_TAIL_SET, PC_TAIL_BINDING = 1, 0
 # can use there.
 F16_HALVES = False
 F16_HALF_TOP = 29
+GUARD_FOLD_HIGH1 = False  # --guard-fold-high1 (experiment, Gen.guard_function)
 ADDRESS_GUARD = False   # --address-guard: raw memory accesses check the runtime's page table (Gen.guard_function)
 OPT_SPIRV = False       # --opt: run tools/spirv_opt.py basic-block peephole pass on emitted SPIR-V (#884)
 
@@ -1692,8 +1693,19 @@ class Gen:
               "OpBranch %gd_done",
               "%gd_done = OpLabel",
               f"%gd_low = OpBitwiseAnd %ulong %gd_off {cl(0xFFF)}",
-              f"%gd_sink = OpIAdd %ulong %gd_low {cl(0x71000)}",
-              "%gd_sel = OpSelect %ulong %gd_ok %gd_off %gd_sink",
+              f"%gd_sink = OpIAdd %ulong %gd_low {cl(0x71000)}"]
+        if GUARD_FOLD_HIGH1:
+            # Experiment (--guard-fold-high1): a refused offset whose high dword is 1 and whose low dword is inside
+            # the arena reads that arena offset instead of the sink.
+            L += [f"%gd_hi32 = OpShiftRightLogical %ulong %gd_m48 {cl(32)}",
+                  f"%gd_is1 = OpIEqual %bool %gd_hi32 {cl(1)}",
+                  f"%gd_lo32 = OpBitwiseAnd %ulong %gd_m48 {cl(0xFFFFFFFF)}",
+                  "%gd_lo_in = OpULessThan %bool %gd_lo32 %gd_size",
+                  "%gd_fold = OpLogicalAnd %bool %gd_is1 %gd_lo_in",
+                  "%gd_alt = OpSelect %ulong %gd_fold %gd_lo32 %gd_sink"]
+        else:
+            L += ["%gd_alt = OpCopyObject %ulong %gd_sink"]
+        L += ["%gd_sel = OpSelect %ulong %gd_ok %gd_off %gd_alt",
               "%gd_res = OpIAdd %ulong %gd_base %gd_sel",
               "OpReturnValue %gd_res", "OpFunctionEnd"]
         self.guard_fn = L
@@ -19674,6 +19686,7 @@ def main():
                     help="bindless descriptor table hash shared with the runtime (default: fnv1a)")
     ap.add_argument("--address-guard", action="store_true",
                     help="check every heap_base access against the runtime's page table (LEONIDA_ADDRESS_GUARD)")
+    ap.add_argument("--guard-fold-high1", action="store_true", help="experiment: see Gen.guard_function")
     ap.add_argument("--loop-limit", type=spirv_loop_guard.parse_limit, default=spirv_loop_guard.DEFAULT_LIMIT,
                     help="maximum visits to each loop header, including dispatch loops (default %(default)s, 0 disables)")
     ap.add_argument("--max-structured-depth", type=_depth_arg, default=MAX_STRUCTURED_DEPTH, metavar="N",
@@ -19704,8 +19717,9 @@ def main():
     MAX_SHARED_BYTES = a.max_shared_memory
     DESCRIPTOR_HASH = a.descriptor_hash
     LOOP_LIMIT = a.loop_limit
-    global ADDRESS_GUARD
+    global ADDRESS_GUARD, GUARD_FOLD_HIGH1
     ADDRESS_GUARD = a.address_guard
+    GUARD_FOLD_HIGH1 = a.guard_fold_high1
     MAX_STRUCTURED_DEPTH = a.max_structured_depth
     global STRUCTURED, WAVE64_EMULATE, WAVE64_GRAPHICS, BARY_FALLBACK, TEXEL_OFFSET_FALLBACK, MESH_COMPUTE, FMA_KHR, SHADER_CLOCK, F16_HALVES, OPT_SPIRV
     global PC_TAIL_UBO

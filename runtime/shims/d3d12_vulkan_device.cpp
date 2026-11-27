@@ -2910,6 +2910,24 @@ struct DeviceState {
 
     // Indexed by actual Vulkan address, never by a placed buffer's CPU address.
     std::atomic<uint64_t> released_backings{};
+    struct ReleasedRange {
+        std::uint64_t address = 0, bytes = 0;
+        ULONGLONG at = 0;
+    };
+    std::mutex released_ring_mutex;
+    std::array<ReleasedRange, 4096> released_ring{};
+    std::uint64_t released_ring_next = 0;
+    // The latest released backing that held `address` (diagnostic): how long ago, or false when none of the last 4096.
+    bool released_holding(std::uint64_t address, ReleasedRange& out) {
+        std::lock_guard lock(released_ring_mutex);
+        bool found = false;
+        for (const ReleasedRange& r : released_ring)
+            if (r.bytes && address >= r.address && address - r.address < r.bytes && (!found || r.at > out.at)) {
+                out = r;
+                found = true;
+            }
+        return found;
+    }
     std::mutex backing_mutex;
     leonida::BufferVaIndex<uint64_t> gpu_backings;
     void backing(VkDeviceAddress address, uint64_t bytes, uint64_t id, bool add) {
@@ -2918,6 +2936,10 @@ struct DeviceState {
         else {
             gpu_backings.erase(address, id);
             released_backings.fetch_add(1, std::memory_order_release);
+            if (leonida::address_guard::enabled()) {  // for naming the guard's refusals (update_address_guard)
+                std::lock_guard released(released_ring_mutex);
+                released_ring[released_ring_next++ % released_ring.size()] = {address, bytes, GetTickCount64()};
+            }
         }
     }
 
@@ -3072,10 +3094,24 @@ struct DeviceState {
             const std::uint64_t offset = std::uint64_t(h[8]) | (std::uint64_t(h[9]) << 32);
             const ULONGLONG now = GetTickCount64();
             if (refused != address_guard.logged_refusals && now - address_guard.logged_at >= 1000) {
+                ReleasedRange was{};
+                const std::uint64_t device_address = arena.address + offset;
+                const bool released = released_holding(device_address, was);
                 std::fprintf(stderr, "[rt] d3d12: address guard: %u refused accesses so far, the last by module 0x%08x "
-                                     "at offset 0x%llx (device address 0x%llx)\n",
+                                     "at offset 0x%llx (device address 0x%llx): %s",
                              refused, module, static_cast<unsigned long long>(offset),
-                             static_cast<unsigned long long>(arena.address + offset));
+                             static_cast<unsigned long long>(device_address),
+                             released ? "in a backing released " : "in no recently released backing");
+                if (released)
+                    std::fprintf(stderr, "%.1f s ago (0x%llx, %llu bytes)", double(now - was.at) / 1000.0,
+                                 static_cast<unsigned long long>(was.address), static_cast<unsigned long long>(was.bytes));
+                leonida::address_guard::Registry::Gone gone{};
+                if (leonida::address_guard::destroyed_holding(device_address, gone))
+                    std::fprintf(stderr, "; in a buffer destroyed %.1f s ago (0x%llx, %llu bytes)\n",
+                                 double(now - gone.at) / 1000.0, static_cast<unsigned long long>(gone.address),
+                                 static_cast<unsigned long long>(gone.bytes));
+                else
+                    std::fprintf(stderr, "; in no recently destroyed buffer\n");
                 address_guard.logged_refusals = refused;
                 address_guard.logged_at = now;
             }

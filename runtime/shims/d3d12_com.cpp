@@ -1019,10 +1019,11 @@ public:
         if (!leonida::indirect_records_fit(arg_desc.Width, argument_buffer_offset, max_command_count,
                                           stride, sig->packed_size()))
             return check(false);
-        if (kind == leonida::IndirectKind::dispatch_mesh) {
-            // Not replayed yet (#3777 replays it as vkCmdDrawMeshTasksIndirectEXT): nothing is recorded, and the
-            // first such call says so. The list stays valid.
-            leonida::indirect_stats::skip(leonida::indirect_stats::Event::record_skip, leonida::indirect_stats::mesh);
+        if (kind == leonida::IndirectKind::dispatch_mesh && !terminal_only) {
+            // A DISPATCH_MESH signature with root arguments before it is not replayed: nothing is recorded, and the
+            // first such call says so. The list stays valid. A terminal-only one is recorded as an indirect mesh draw
+            // (record_indirect; vkCmdDrawMeshTasksIndirect(Count)EXT after the clamp pass).
+            leonida::indirect_stats::skip(leonida::indirect_stats::Event::record_skip, leonida::indirect_stats::compound);
             return;
         }
         if (!terminal_only && (kind == leonida::IndirectKind::draw || kind == leonida::IndirectKind::draw_indexed)) {
@@ -1927,6 +1928,27 @@ private:
     }
 
     void record_indirect(leonida::IndirectKind kind, bool terminal_only, const leonida::IndirectDrawArgs& args) {
+        if (kind == leonida::IndirectKind::dispatch_mesh) {
+            // DispatchMesh's state, with the group counts read by the GPU from the argument records.
+            namespace stats = leonida::indirect_stats;
+            const auto skip = [](stats::Reason reason) { stats::skip(stats::Event::record_skip, reason); };
+            if (type_ != D3D12_COMMAND_LIST_TYPE_DIRECT) return check(false);
+            if (!args.max_count) return;
+            if (!terminal_only) return skip(stats::compound);
+            if (!graphics_pipeline_) return skip(stats::pipeline);
+            if (!graphics_.layout) return skip(stats::root_layout);
+            if (!graphics_.layout->mesh_ok) return skip(stats::root_layout);
+            if (!any_nonempty_viewport()) return skip(stats::viewport);
+            leonida::Draw draw{graphics_pipeline_, graphics_user_data(), draw_views(), depth_, {}, 0, viewport_,
+                               scissor_, blend_factor_, front_stencil_ref_, back_stencil_ref_, false, 0, 1, 0, 0, 0};
+            note_direct_heap_indexing(graphics_.layout);
+            draw.mesh = true;
+            draw.viewports = draw_viewports();
+            const bool recorded = list_.draw_indirect(std::move(draw), args);
+            if (recorded) stats::note(stats::Event::recorded);
+            check(recorded);
+            return;
+        }
         if (kind == leonida::IndirectKind::draw || kind == leonida::IndirectKind::draw_indexed) {
             if (type_ != D3D12_COMMAND_LIST_TYPE_DIRECT) return check(false);
             // A valid zero-count call records nothing, even if graphics state has not been set.
