@@ -65,6 +65,17 @@ inline constexpr std::uint32_t indirect_clamp_max_group_dimension = 65535u;
 inline constexpr std::uint32_t indirect_clamp_max_groups = 1u << 20;
 inline constexpr std::uint32_t indirect_clamp_budget = 1u << 27;
 
+// LOCAL DIAGNOSTIC: LEONIDA_MESH_GROUP_BUDGET=<groups> caps every indirect mesh record at that many groups (0 or
+// unset: no cap; at most 65535), to measure how much of a mesh draw's GPU time its group count is.
+inline std::uint32_t mesh_group_budget() {
+    static const std::uint32_t budget = [] {
+        const char* v = std::getenv("LEONIDA_MESH_GROUP_BUDGET");
+        const unsigned long n = v ? std::strtoul(v, nullptr, 10) : 0ul;
+        return std::uint32_t(n > 65535ul ? 65535ul : n);
+    }();
+    return budget;
+}
+
 // The largest scratch allocation accepted for one ExecuteIndirect call.
 inline constexpr std::uint64_t indirect_clamp_max_scratch_bytes = std::uint64_t(64) << 20;
 
@@ -558,7 +569,8 @@ inline void IndirectArgumentClamp::emit(VkCommandBuffer cb, const ClampedIndirec
                                                   records,
                                                   std::uint32_t(first),
                                                   job.max_records,
-                                                  (job.kind == indirect_clamp_dispatch ? indirect_group_budget() << 1 : 0u) |
+                                                  (job.kind == indirect_clamp_dispatch ? indirect_group_budget() << 1
+                                                   : job.kind == indirect_clamp_mesh ? mesh_group_budget() << 1 : 0u) |
                                                       (job.counted ? 1u : 0u)};
         push(cb, layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants), &constants);
         dispatch(cb, (records - 1u) / 64u + 1u, 1, 1);

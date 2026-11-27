@@ -2,6 +2,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include "address_guard.h"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -411,6 +413,11 @@ private:
             std::fprintf(stderr, "[rt] device-fault: address[%zu] type=%d address=0x%" PRIx64
                                  " precision=%" PRIu64 "\n",
                          i, int(address.addressType), address.reportedAddress, address.addressPrecision);
+            if (leonida::address_guard::enabled()) {  // which buffer the address belongs to, if the registry knows
+                char where[256] = "";
+                leonida::address_guard::describe(address.reportedAddress, where, sizeof(where));
+                std::fprintf(stderr, "[rt] device-fault:   address[%zu] is %s\n", i, where);
+            }
         }
         for (std::size_t i = 0; i < counts.vendorInfoCount; ++i) {
             const auto& vendor = vendors[i];

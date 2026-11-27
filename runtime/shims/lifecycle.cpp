@@ -18,6 +18,7 @@
 #define NOMINMAX
 #endif
 
+#include <cstdlib>
 #include <windows.h>
 
 #include <algorithm>
@@ -142,9 +143,23 @@ void install_window_hook(HWND hwnd) {
 
 // Before CreateWindowEx: a candidate is a top-level, non-child, non-tool window. Returns whether it is one, and fits
 // it only when it is the first candidate (no title window claimed yet).
-bool prepare_title_window(HWND parent, DWORD style, DWORD ex_style, int& x, int& y, int& width, int& height) {
+bool prepare_title_window(HWND parent, DWORD& style, DWORD ex_style, int& x, int& y, int& width, int& height) {
     if (parent != nullptr || (style & WS_CHILD) || (ex_style & WS_EX_TOOLWINDOW)) return false;
     if (g_title_window.load() != nullptr) return true;
+    // LEONIDA_FULLSCREEN=1: the title's window is made borderless and as large as the primary monitor.
+    if (const char* fs = std::getenv("LEONIDA_FULLSCREEN"); fs && *fs && *fs != '0') {
+        MONITORINFO monitor{sizeof(monitor)};
+        if (GetMonitorInfoW(MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY), &monitor)) {
+            const RECT& r = monitor.rcMonitor;
+            style = (style & ~(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX)) | WS_POPUP;
+            x = r.left;
+            y = r.top;
+            width = r.right - r.left;
+            height = r.bottom - r.top;
+            std::fprintf(stderr, "[rt] lifecycle: LEONIDA_FULLSCREEN: title window borderless at %dx%d\n", width, height);
+            return true;
+        }
+    }
     RECT area{};
     if (!SystemParametersInfoW(SPI_GETWORKAREA, 0, &area, 0)) return true;
     const auto [fitted_w, fitted_h] = fit_window_to_area(area, width, height);

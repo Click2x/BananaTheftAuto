@@ -16,6 +16,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
@@ -119,6 +120,44 @@ inline bool destroyed_holding(VkDeviceAddress address, Registry::Gone& out) {
             found = true;
         }
     return found;
+}
+
+// Diagnostic (device-fault reports): which buffer the registry knows at `address`. Writes one line into `out`:
+// a live buffer (its address and size), the latest destroyed one that held it (how long ago), or none.
+inline void describe(VkDeviceAddress address, char* out, std::size_t size) {
+    Registry& r = registry();
+    {
+        std::lock_guard lock(r.mutex);
+        for (const auto& [buffer, info] : r.buffers)
+            if (info.second && address >= info.second && address - info.second < info.first) {
+                std::snprintf(out, size, "in a live buffer at 0x%llx (%llu bytes, offset 0x%llx)",
+                              (unsigned long long)info.second, (unsigned long long)info.first,
+                              (unsigned long long)(address - info.second));
+                return;
+            }
+    }
+    Registry::Gone gone{};
+    if (destroyed_holding(address, gone)) {
+        std::snprintf(out, size, "in a buffer DESTROYED %llu ms before this report (at 0x%llx, %llu bytes)",
+                      (unsigned long long)(GetTickCount64() - gone.at), (unsigned long long)gone.address,
+                      (unsigned long long)gone.bytes);
+        return;
+    }
+    // The nearest live buffers below and above, to tell a gap from an overrun.
+    VkDeviceAddress below = 0, below_end = 0, above = ~0ull;
+    {
+        std::lock_guard lock(r.mutex);
+        for (const auto& [buffer, info] : r.buffers) {
+            if (!info.second) continue;
+            if (info.second <= address && info.second > below) {
+                below = info.second;
+                below_end = info.second + info.first;
+            }
+            if (info.second > address && info.second < above) above = info.second;
+        }
+    }
+    std::snprintf(out, size, "in no known buffer (nearest below ends at 0x%llx, %lld bytes before; next starts at 0x%llx)",
+                  (unsigned long long)below_end, (long long)(address - below_end), (unsigned long long)above);
 }
 
 // Called by VulkanDeviceFunctions::load: routes buffer creation, destruction and address queries through the registry.

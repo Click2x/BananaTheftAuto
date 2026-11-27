@@ -2056,6 +2056,21 @@ struct TextureCreateInfo {
         info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         if (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) info.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         if (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) info.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        // LOCAL DIAGNOSTIC (LEONIDA_LOG_RT_SIZES=1): each new size of render target or depth buffer, once, with a count.
+        if ((desc.Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)) &&
+            desc.Width >= 640 && [] {
+                const char* v = std::getenv("LEONIDA_LOG_RT_SIZES");
+                return v && *v == '1';
+            }()) {
+            static std::mutex sizes_mutex;
+            static std::map<std::tuple<std::uint64_t, std::uint32_t, bool>, std::uint32_t> sizes;
+            std::lock_guard lock(sizes_mutex);
+            const bool depth = (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) != 0;
+            const std::uint32_t n = ++sizes[{desc.Width, desc.Height, depth}];
+            if (n == 1 || n == 10 || n == 100)
+                std::fprintf(stderr, "[rt] rt-size: %s %llux%u format %d (%u so far)\n", depth ? "depth" : "color",
+                             static_cast<unsigned long long>(desc.Width), desc.Height, int(desc.Format), n);
+        }
         // No B8G8R8X8 view is ever a UAV, so its typeless family needs no storage usage (not every GPU has it for BGRA8).
         if ((desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) && !alpha_unused(desc.Format)) {
             info.usage |= VK_IMAGE_USAGE_STORAGE_BIT;

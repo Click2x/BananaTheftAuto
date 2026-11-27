@@ -1,4 +1,6 @@
 #pragma once
+
+#include "gpu_profile.h"
 #include <atomic>
 #include <cfloat>
 #include <cstdlib>
@@ -4341,10 +4343,24 @@ inline void emit_commands(const PreparedList& prepared, VkCommandBuffer command_
         }
     };
 
+    gpu_profile::Profiler::get().start(command_buffer);  // LEONIDA_GPU_PROFILE
     for (std::size_t i = 0; i < commands.size(); ++i) {
         const auto& command = commands[i];
         const auto& p = prepared.commands[i];
         const auto raster = draw_command(command);
+        // LEONIDA_GPU_PROFILE: a stamp after this command, however its branch below ends (continue included).
+        struct ProfileAfter {
+            VkCommandBuffer cb;
+            std::uint64_t key;
+            ~ProfileAfter() { gpu_profile::Profiler::get().after(cb, key); }
+        } profile_after{command_buffer, [&]() -> std::uint64_t {
+            if (!gpu_profile::enabled()) return 0;
+            std::uint64_t id = 0;
+            if (const auto* d = std::get_if<Dispatch>(&command)) id = d->pipeline;
+            else if (const auto* e = std::get_if<ExecuteIndirect>(&command)) id = e->pipeline;
+            else if (raster.state) id = raster.state->pipeline;
+            return (std::uint64_t(command.index()) << 56) | (id & ((std::uint64_t(1) << 56) - 1));
+        }()};
         if (next_query < prepared.queries.size() && prepared.queries[next_query].command == i) {
             if constexpr (Checkpoints)
                 if (std::holds_alternative<ResolveQueries>(command))

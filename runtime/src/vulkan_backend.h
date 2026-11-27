@@ -1092,6 +1092,7 @@ public:
                   GraphicsIndirectCapabilities indirect = {})
         : device_(device), tracker_(separate_depth_stencil_layouts), ray_tracing_(ray_tracing) {
         loaded_ = vk.load(get, device);
+        if (loaded_) leonida::gpu_profile::Profiler::get().initialize(device, get);  // LEONIDA_GPU_PROFILE
         if (loaded_ && gpu_labels_.initialize(device, get)) {
             replay_.gpu_label = [this](VkCommandBuffer cb, const label::Write& write) { gpu_labels_.record(cb, write); };
         }
@@ -1483,7 +1484,10 @@ public:
     // VkPhysicalDeviceLimits::timestampPeriod (nanoseconds per tick), or 0 when the queue writes no timestamps
     // (timestampValidBits 0). Set by the device before any queue uses it.
     double timestamp_period() const { return timestamp_period_; }
-    void set_timestamp_period(double period) { timestamp_period_ = period; }
+    void set_timestamp_period(double period) {
+        timestamp_period_ = period;
+        leonida::gpu_profile::Profiler::get().set_period(period);  // LEONIDA_GPU_PROFILE
+    }
     // True where a timestamp resolve must be ordered explicitly after the timestamps it copies (MoltenVK on Apple
     // GPUs, docs/d3d12_vulkan.md section 4.6). Set by the device before any queue uses it.
     bool order_timestamp_copies() const { return order_timestamp_copies_; }
@@ -1553,6 +1557,7 @@ public:
         std::unique_lock lock(resource_mutex_);
         pipelines_[id] = pipeline;
         if (shader && device_fault_) device_fault_->pipeline_names[id] = {shader};
+        leonida::gpu_profile::Profiler::get().name(id, shader);  // LEONIDA_GPU_PROFILE
     }
     void remove_pipeline(std::uintptr_t id) {
         std::unique_lock lock(resource_mutex_);
@@ -1565,6 +1570,10 @@ public:
         std::unique_lock lock(resource_mutex_);
         graphics_pipelines_[id] = pipeline;
         if (shaders && device_fault_) device_fault_->pipeline_names[id] = *shaders;
+        if (shaders) {  // LEONIDA_GPU_PROFILE: a draw is named by its pixel (else vertex) shader
+            const char* named = (*shaders)[1] ? (*shaders)[1] : (*shaders)[0];
+            leonida::gpu_profile::Profiler::get().name(id, named);
+        }
     }
     // Workers for the pipelines a submission needs and that are not built yet. Null (the default): each is built where
     // prepare() meets it, on the submitting thread. Replacing it waits for submissions that are compiling, and ends the

@@ -251,6 +251,10 @@ static BOOL WINAPI show_package_window(HWND window, int command) {
 #endif
 
 int wmain(int argc, wchar_t** argv) {
+    // LEONIDA_FULLSCREEN: the process is per-monitor DPI aware, so the borderless window and its frames are the
+    // display's real pixel size, not the size Windows scaling reports to an unaware process.
+    if (const wchar_t* fs = _wgetenv(L"LEONIDA_FULLSCREEN"); fs && *fs && *fs != L'0')
+        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     std::filesystem::path image, game_dir, overlay_dir, mods_dir;
     uint32_t archetype_lookup_rva = 0;  // --archetype-lookup RVA[,ARG]: the game's archetype lookup by hash
     int archetype_lookup_arg = 0;

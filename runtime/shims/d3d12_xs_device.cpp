@@ -1675,6 +1675,30 @@ PresentState* present_state_for(DeviceProxy* device, bool splash_only = false) {
     const bool hidden = std::strcmp(mode, "hidden") == 0;
     const bool own = hidden || std::strcmp(mode, "own") == 0;
     HWND target = own ? nullptr : rt::d3d12::find_title_window(GetCurrentProcessId());
+    // LEONIDA_FULLSCREEN=1: the title's window becomes borderless and covers its whole monitor before the presenter
+    // takes its size, so every frame fills the screen.
+    if (target && !splash_only) {
+        static const bool fullscreen = [] {
+            const char* v = std::getenv("LEONIDA_FULLSCREEN");
+            return v && *v && *v != '0';
+        }();
+        if (fullscreen) {
+            MONITORINFO monitor{sizeof(monitor)};
+            if (GetMonitorInfoW(MonitorFromWindow(target, MONITOR_DEFAULTTONEAREST), &monitor)) {
+                const RECT& r = monitor.rcMonitor;
+                SetWindowLongPtrW(target, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+                SetWindowPos(target, HWND_TOP, r.left, r.top, r.right - r.left, r.bottom - r.top,
+                             SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS | SWP_SHOWWINDOW);
+                for (int i = 0; i < 50; ++i) {  // the title's thread applies an async move: wait for the new size
+                    RECT now{};
+                    if (GetClientRect(target, &now) && now.right - now.left == r.right - r.left) break;
+                    Sleep(10);
+                }
+                std::fprintf(stderr, "[rt] present: LEONIDA_FULLSCREEN: the title's window covers its monitor (%ldx%ld)\n",
+                             r.right - r.left, r.bottom - r.top);
+            }
+        }
+    }
     RECT client{};
     if (target && (!GetClientRect(target, &client) || client.right <= client.left || client.bottom <= client.top))
         target = nullptr;  // minimised or zero-sized: nothing to present in

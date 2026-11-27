@@ -1,4 +1,6 @@
 #pragma once
+
+#include <cstdlib>
 #include <utility>
 #include <memory>
 
@@ -216,6 +218,13 @@ public:
     std::int32_t set_frame_interval(std::uint32_t period_us, std::uint32_t latency, std::uint32_t flags) {
         (void)flags;
         if (period_us == 0) return pacer_hr::invalid_arg;
+        // LEONIDA_FPS_CAP=<fps>: the interval is never shorter than 1/fps, whatever the title asks for.
+        static const std::uint32_t cap_period_us = [] {
+            const char* v = std::getenv("LEONIDA_FPS_CAP");
+            const unsigned long fps = v ? std::strtoul(v, nullptr, 10) : 0ul;
+            return fps ? std::uint32_t(1000000ul / fps) : 0u;
+        }();
+        if (cap_period_us && period_us < cap_period_us) period_us = cap_period_us;
         std::lock_guard guard(mutex_);
         if (suspended_) return pacer_hr::invalid_state;
         period_us_ = period_us;
