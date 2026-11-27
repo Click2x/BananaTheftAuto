@@ -285,7 +285,15 @@ inline bool skip_int3(EXCEPTION_POINTERS* info) {
         const std::lock_guard lock(m);
         first = seen.insert(at).second;
     }
-    if (first) event("int3_skipped", "\"at\":" + quote(where(reinterpret_cast<uint64_t>(at))));
+    if (first) {
+        // The stack names who reached the int3 (a title fatal-error handler is reached from many places).
+        std::string f = "\"at\":" + quote(where(reinterpret_cast<uint64_t>(at)));
+        try {
+            f += ",\"stack\":" + stack_from(*info->ContextRecord);
+        } catch (...) {
+        }
+        event("int3_skipped", f);
+    }
     info->ContextRecord->Rip += 1;
     return true;
 }
