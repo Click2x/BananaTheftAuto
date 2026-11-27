@@ -34,6 +34,11 @@ How we got here, problem by problem: **[DEVLOG.md](DEVLOG.md)**.
 </p>
 
 <p align="center">
+<img src="docs/screenshots/2026-11-26-first-hud.png" width="98%" alt="First in-game HUD: the minimap with its north marker and player arrow">
+</p>
+<p align="center"><sub>2026-11-26: the first in-game frame. The HUD's minimap is drawn; the world behind it is not yet (brightened to show it).</sub></p>
+
+<p align="center">
 <img src="docs/screenshots/2026-11-25-sign-in-screen.png" width="49%" alt="Sign-in screen">
 <img src="docs/screenshots/2026-11-25-legal-notices.webp" width="49%" alt="Legal notices screen">
 <img src="docs/screenshots/2026-11-25-finish-setup.webp" width="49%" alt="Finish setup screen">
