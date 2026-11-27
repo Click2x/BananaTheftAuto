@@ -29,7 +29,7 @@ own runtime and shader fixes. It does not contain, download or share any game fi
 - **Then speed.** The goal after that is 30 fps (the gauge below measures the menus). Gameplay, audio and anything playable come after.
 - **No dates.** We post progress here as it's measured, not before.
 
-How we got here, problem by problem: **[DEVLOG.md](DEVLOG.md)**. Community updates: **[ANNOUNCEMENTS.md](ANNOUNCEMENTS.md)**.
+How we got here, problem by problem: **[DEVLOG.md](DEVLOG.md)**. Community updates: **[ANNOUNCEMENTS.md](ANNOUNCEMENTS.md)**. Tools we use: **[TOOLS.md](TOOLS.md)**.
 
 <p align="center">
 <img src="docs/banana/journey.svg" width="49%" alt="Where we are: boots, first picture, controller, menus, loading screens and the first world picture done; cleaning up the picture now; 30 fps ahead">
@@ -82,6 +82,14 @@ How we got here, problem by problem: **[DEVLOG.md](DEVLOG.md)**. Community updat
 | ⬜ | Gameplay on screen | after that |
 | ⬜ | 30 fps | later |
 | ⬜ | Audio | later |
+
+### Compared with other projects
+
+<p align="center"><img src="docs/banana/compare.svg" width="100%" alt="How far the GTA VI PC projects have got, on PortWatch's milestone ladder: Banana Theft Auto has reached In the world, the furthest of the static recompilation projects; 12 compatibility-layer projects report Playable."></p>
+
+Stages come from [PortWatch](https://github.com/4lwayz/portwatch-vi) ([gta6port.app](https://gta6port.app/)), where each
+project's own developers report how far they've got. PortWatch doesn't list Banana Theft Auto, so we placed it using
+PortWatch's published milestone rules.
 
 ## For helpers
 
