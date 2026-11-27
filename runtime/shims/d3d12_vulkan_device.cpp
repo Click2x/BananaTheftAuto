@@ -401,6 +401,9 @@ public:
         if (from >= to) return 0;
         constexpr std::uintptr_t kPiece = 256;
         AcquireSRWLockExclusive(&lock_);
+        // A copy below can fault on another guard's read-only page; the fault handler then asks this tracker to reopen
+        // (reopen / reopen_range) on this same thread. SRW locks are not recursive: those skip the lock for its holder.
+        holder_.store(GetCurrentThreadId(), std::memory_order_relaxed);
         std::size_t written = 0;
         std::uint8_t now[kPiece];
         for (std::uintptr_t page = from & ~(kPage - 1); page < to; page += kPage) {
@@ -436,6 +439,7 @@ public:
                 }
             }
         }
+        holder_.store(0, std::memory_order_relaxed);
         ReleaseSRWLockExclusive(&lock_);
         return written;
     }
@@ -759,14 +763,15 @@ public:
         from = std::max(from & ~(kPage - 1), first_);
         to = std::min((to + kPage - 1) & ~(kPage - 1), last_);
         if (from >= to) return;
-        AcquireSRWLockExclusive(&lock_);
+        const bool held = holds_lock();
+        if (!held) AcquireSRWLockExclusive(&lock_);
         bool guarded = false;
         for (std::size_t i = (from - first_) / kPage, i1 = (to - first_) / kPage; i < i1; ++i) {
             state_[i] &= ~kClean;
             guarded |= (state_[i] & kProtected) != 0;
         }
         if (guarded) reopen_locked(from, to);
-        ReleaseSRWLockExclusive(&lock_);
+        if (!held) ReleaseSRWLockExclusive(&lock_);
     }
 
     // From the fault handler: a write to `address`, inside this range, faulted. True when the write can be retried:
@@ -777,7 +782,8 @@ public:
     // write it should have retried, which ended the process (seen natively on Windows 11: threads writing one page
     // across a submission).
     bool reopen(std::uintptr_t address) {
-        AcquireSRWLockExclusive(&lock_);
+        const bool held = holds_lock();
+        if (!held) AcquireSRWLockExclusive(&lock_);
         const std::size_t index = (address - first_) / kPage;
         bool retry = (state_[index] & kProtected) != 0;
         if (retry) {
@@ -803,11 +809,15 @@ public:
             retry = VirtualQuery(reinterpret_cast<const void*>(address), &region, sizeof(region)) &&
                     classify(region) == Kind::writable;
         }
-        ReleaseSRWLockExclusive(&lock_);
+        if (!held) ReleaseSRWLockExclusive(&lock_);
         return retry;
     }
 
 private:
+    // The thread inside write_back (holding lock_), or 0. Only that thread can see its own id here.
+    std::atomic<DWORD> holder_{0};
+    bool holds_lock() const { return holder_.load(std::memory_order_relaxed) == GetCurrentThreadId(); }
+
     enum : std::uint8_t {
         kProtected = 1,  // made read-only here: unchanged since it was copied
         kZero = 2,       // zero in the copies (not committed when last looked at)
