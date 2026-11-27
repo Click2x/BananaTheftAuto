@@ -3372,15 +3372,16 @@ struct DeviceState {
 
     // The slots on [offset, offset + bytes) of a heap copy's mirror, just brought up to date: each that differs from
     // what its arena slot was made from is written there and fixed up.
-    // Past LEONIDA_CONSOLE_FIX_US of fixing in one submission (4000 by default, 0: no limit), a changed slot is written
-    // as a null descriptor and left to retry_console_slots: after the story load the title rewrote up to 3.7 MiB of
-    // its heap at once and one submission spent 28 s fixing it (speed-8). A shader reads such a slot as empty until
-    // its turn comes.
+    // LEONIDA_CONSOLE_FIX_US limits the fixing in one submission (0, the default: no limit). Past it a changed slot is
+    // written as a null descriptor and left to retry_console_slots: after the story load the title rewrote up to
+    // 3.7 MiB of its heap at once and one submission spent 28 s fixing it (speed-8). A shader reads such a slot as
+    // empty until its turn comes, so a limit changes results: at the first world frame lib_cs_01144 read the size it
+    // divides by from a nulled buffer slot and its loops never ended, which lost the device.
     void fix_console_slots(ConsoleHeap& heap, std::size_t offset, std::size_t bytes) {
         static const std::uint64_t budget_us = [] {
             char text[16] = {};
             const DWORD n = GetEnvironmentVariableA("LEONIDA_CONSOLE_FIX_US", text, sizeof(text));
-            return n > 0 && n < sizeof(text) ? std::strtoull(text, nullptr, 10) : 4000ull;
+            return n > 0 && n < sizeof(text) ? std::strtoull(text, nullptr, 10) : 0ull;
         }();
         const std::size_t end = std::min<std::size_t>(offset + bytes, std::size_t(heap.bytes));
         if (!heap.resource_heap) {
@@ -3395,7 +3396,13 @@ struct DeviceState {
             if (budget_us && !heap.fix_over && !(++heap.fix_count & 15) &&
                 std::chrono::steady_clock::now() - heap.fix_start >= std::chrono::microseconds(budget_us))
                 heap.fix_over = true;
-            if (heap.fix_over) {
+            // Buffer V#s (!(w3 >> 30)) only rebase address offsets, so they are fast and must never be
+            // deferred or nulled: at the first world frame lib_cs_01144 reads its loop bound from a buffer
+            // slot; nulling it causes an infinite loop and device loss. Only image T#s are deferred past budget.
+            std::uint32_t w3 = 0;
+            std::memcpy(&w3, heap.previous + at + 12, sizeof(w3));
+            const bool is_buffer_vsharp = !(w3 >> 30);
+            if (heap.fix_over && !is_buffer_vsharp) {
                 std::memset(heap.copy + at, 0, kDescriptorSize);
                 ++heap.deferred_fixes;
                 if (!heap.retry[slot]) {
