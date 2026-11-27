@@ -4,9 +4,9 @@
 //
 //   0     never: the extension is not enabled and every CPU texture copy takes the staging submit.
 //   1     whenever the device has the extension and its hostImageCopy feature.
-//   auto  (unset, empty or any other text) as 1, except on NVIDIA, where it is off: a real boot on an RTX 4070 SUPER
-//         lost the device (WRITE_INVALID) in 7 of 7 runs with host image copies and in 0 of 2 without them. The
-//         cause is not known yet (docs/d3d12_vulkan.md).
+//   auto  (unset, empty or any other text) as 1. Banana Theft Auto keeps it on for NVIDIA too: upstream turns it off
+//         there (an RTX 4070 SUPER lost the device in 7 of 7 boots), but on an RTX 3090 it ran cleanly, and without it
+//         this build's staged uploads leave video frames empty (a green screen). LEONIDA_HOST_IMAGE_COPY=0 turns it off.
 #pragma once
 
 #include <cstdint>
@@ -26,7 +26,7 @@ inline HostImageCopyChoice host_image_copy_choice(const char* setting, bool avai
     if (setting && std::strcmp(setting, "0") == 0) return {false, "LEONIDA_HOST_IMAGE_COPY=0"};
     if (!available) return {false, "not available"};
     if (setting && std::strcmp(setting, "1") == 0) return {true, "LEONIDA_HOST_IMAGE_COPY=1"};
-    if (vendor_id == kNvidiaVendorId) return {false, "auto: NVIDIA"};
+    (void)vendor_id;
     return {true, "available"};
 }
 

@@ -26,11 +26,11 @@ int main() {
     constexpr std::uint32_t nvidia = 0x10DE, amd = 0x1002, intel = 0x8086;
     static_assert(leonida::kNvidiaVendorId == nvidia, "NVIDIA's PCI vendor id");
 
-    // auto (unset, empty, the word itself): on where available, except on NVIDIA.
+    // auto (unset, empty, the word itself): on where available, NVIDIA included (Banana Theft Auto).
     for (const char* automatic : {static_cast<const char*>(nullptr), "", "auto"}) {
         expect(automatic, true, amd, true, "available");
         expect(automatic, true, intel, true, "available");
-        expect(automatic, true, nvidia, false, "auto: NVIDIA");
+        expect(automatic, true, nvidia, true, "available");
         expect(automatic, false, amd, false, "not available");
         expect(automatic, false, nvidia, false, "not available");
     }
@@ -49,7 +49,7 @@ int main() {
     // Anything else is auto: only the exact texts 0 and 1 are switches.
     for (const char* garbage : {"yes", "on", "off", "true", "01", "10", " 1", "1 ", "2", "-1", "AUTO", "nvidia"}) {
         expect(garbage, true, amd, true, "available");
-        expect(garbage, true, nvidia, false, "auto: NVIDIA");
+        expect(garbage, true, nvidia, true, "available");
         expect(garbage, false, amd, false, "not available");
     }
 

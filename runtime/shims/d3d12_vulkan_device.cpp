@@ -619,13 +619,19 @@ public:
                      int(protect_error));
         // The copies run without the lock: a write that faults meanwhile is let through and copied next time.
         std::size_t copied = 0;
-        for (const Job& job : jobs_)
-            for_each_target(begin_ + job.offset, begin_ + job.offset + job.bytes,
-                            [&](const Target& t, std::uintptr_t from, std::uintptr_t to) {
-                                copy_run(t.shadow + (from - t.begin), reinterpret_cast<const std::uint8_t*>(from),
-                                         to - from, job.streaming);
-                                copied += to - from;
-                            });
+        for (const Job& job : zeroed_) forget_sums(begin_ + job.offset, begin_ + job.offset + job.bytes);
+        if (shadow_keep()) {
+            for (const Job& job : jobs_) copied += copy_changed(begin_ + job.offset, begin_ + job.offset + job.bytes,
+                                                                job.streaming);
+        } else {
+            for (const Job& job : jobs_)
+                for_each_target(begin_ + job.offset, begin_ + job.offset + job.bytes,
+                                [&](const Target& t, std::uintptr_t from, std::uintptr_t to) {
+                                    copy_run(t.shadow + (from - t.begin), reinterpret_cast<const std::uint8_t*>(from),
+                                             to - from, job.streaming);
+                                    copied += to - from;
+                                });
+        }
         refresh_queries_ = queries;
         return copied;
     }
@@ -635,6 +641,7 @@ public:
     // now on; the ones new here are unknown, so the next refresh queries them.
     void extend(std::uintptr_t first, std::uintptr_t last) {
         AcquireSRWLockExclusive(&lock_);
+        sums_.clear();  // the pieces move with first_: the next refresh copies them all once
         if (first < first_) {
             const std::size_t n = (first_ - first) / kPage;
             state_.insert(state_.begin(), n, std::uint8_t(0));
@@ -699,6 +706,9 @@ public:
     // tracker keeps read-only is as the other targets have it; one written meanwhile is copied again at the next
     // refresh, like any page that isn't read-only here. Under shadow_mutex, so no refresh runs meanwhile.
     void fill(std::uintptr_t begin, std::uintptr_t end, std::uint8_t* shadow) {
+        // The other targets hold what the sums say; the new one holds the title's bytes now. Forgetting the sums
+        // makes the next refresh bring every target over this range to the same bytes.
+        forget_sums(begin, end);
         for (std::uintptr_t at = begin & ~(kPage - 1); at < end;) {
             MEMORY_BASIC_INFORMATION region{};
             std::uintptr_t next = at + kPage;
@@ -965,6 +975,70 @@ private:
         std::size_t offset, bytes;  // from begin_
         bool streaming;
     };
+
+    // Banana Theft Auto "shadow keep": a refresh copies a 256-byte piece of the title's bytes only when they changed
+    // since the last copy of that piece (sums_, one 64-bit fingerprint per piece from first_, 0: unknown). Pages
+    // copied at every refresh for want of any sign of a write (aliased, unguarded, hot, pinned) would otherwise put
+    // the title's unchanged bytes over what a GPU pass stored in the copy, and the next pass would read old data.
+    // LEONIDA_SHADOW_KEEP=0 copies whole jobs, as before.
+    static constexpr std::uintptr_t kPiece = 256;
+    static bool shadow_keep() {
+        static const bool on = [] {
+            const char* v = std::getenv("LEONIDA_SHADOW_KEEP");
+            return !(v && v[0] == '0');
+        }();
+        return on;
+    }
+    static std::uint64_t piece_sum(const std::uint8_t* p, std::size_t n) {
+        std::uint64_t h = 0xcbf29ce484222325ull ^ n;
+        std::size_t i = 0;
+        for (; i + 8 <= n; i += 8) {
+            std::uint64_t w;
+            std::memcpy(&w, p + i, 8);
+            h = (h ^ w) * 0x100000001b3ull;
+            h ^= h >> 31;
+        }
+        for (; i < n; ++i) h = (h ^ p[i]) * 0x100000001b3ull;
+        return h | 1;  // never 0, which means unknown
+    }
+    std::size_t piece_index(std::uintptr_t at) const { return (at - first_) / kPiece; }
+    void size_sums() {
+        const std::size_t n = (last_ - first_ + kPiece - 1) / kPiece;
+        if (sums_.size() != n) sums_.resize(n, 0);
+    }
+    void forget_sums(std::uintptr_t from, std::uintptr_t to) {
+        if (sums_.empty() || to <= from) return;
+        const std::size_t a = piece_index(std::max(from, first_)), b = std::min(sums_.size(), piece_index(to - 1) + 1);
+        for (std::size_t i = a; i < b; ++i) sums_[i] = 0;
+    }
+    // Copies the pieces of [from, to) whose bytes changed to every target over them. Returns the bytes copied.
+    std::size_t copy_changed(std::uintptr_t from, std::uintptr_t to, bool streaming) {
+        size_sums();
+        std::size_t copied = 0;
+        std::uint8_t piece[kPiece];
+        for (std::uintptr_t at = from; at < to;) {
+            const std::uintptr_t end = std::min(to, (at & ~(kPiece - 1)) + kPiece);
+            const std::size_t n = end - at;
+            const std::size_t index = piece_index(at);
+            if (!copy_guarded(piece, reinterpret_cast<const std::uint8_t*>(at), n, streaming)) {
+                if (index < sums_.size()) sums_[index] = 0;  // unreadable now: copied in full when it comes back
+                at = end;
+                continue;
+            }
+            const std::uint64_t sum = piece_sum(piece, n);
+            const bool whole = (at & (kPiece - 1)) == 0 && n == kPiece;  // a partial piece is never trusted
+            if (!whole || index >= sums_.size() || sums_[index] != sum) {
+                for_each_target(at, end, [&](const Target& t, std::uintptr_t x, std::uintptr_t y) {
+                    std::memcpy(t.shadow + (x - t.begin), piece + (x - at), y - x);
+                    copied += y - x;
+                });
+                if (whole && index < sums_.size()) sums_[index] = sum;
+            }
+            at = end;
+        }
+        return copied;
+    }
+    Vector<std::uint64_t> sums_;
     struct Target {
         std::uintptr_t begin, end;  // the title's bytes
         std::uint8_t* shadow;       // where begin's byte goes
