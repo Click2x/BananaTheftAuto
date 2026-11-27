@@ -880,6 +880,21 @@ def best_drive_folder(need_gb, name="Leonida"):
     return os.path.join(root[0], name) if root[1] >= need_gb else None
 
 
+def step_folders(st, need):
+    """Asks where the finished port and the work files go, and saves both."""
+    out = pick_drive_folder("Output folder", st.get("out") or DOCS_OUT, 5,
+                            "The finished port goes here (derived from your copy; never share it).")
+    work_default = st.get("work") or os.path.join(out, "work")
+    if (free_gb(work_default) or 0) < need:
+        alt = best_drive_folder(need, "Leonida-work")
+        if alt:
+            line("info", "Suggested work folder: " + alt, "the drive with the most free space")
+            work_default = alt
+    work = pick_drive_folder("Work folder", work_default, need, "Big temporary files go here (about %d GB for this choice). It can be on another drive." % need)
+    st.update(out=out, work=work)
+    save(st)
+
+
 def step_build(st, n=2, total=4, preset=None):
     heading("What to build and where", (n, total))
     items = [(k, label, hint + ("  (~%d GB)" % need if need else "")) for k, (_, label, hint, need) in PRESETS.items()]
@@ -893,16 +908,7 @@ def step_build(st, n=2, total=4, preset=None):
     stages, _, _, need = PRESETS[k]
     if stages == "check":
         return stages, False
-    out = pick_drive_folder("Output folder", st.get("out") or DOCS_OUT, 5,
-                            "The finished port goes here (derived from your copy; never share it).")
-    work_default = st.get("work") or os.path.join(out, "work")
-    if (free_gb(work_default) or 0) < need:
-        alt = best_drive_folder(need, "Leonida-work")
-        if alt:
-            line("info", "Suggested work folder: " + alt, "the drive with the most free space")
-            work_default = alt
-    work = pick_drive_folder("Work folder", work_default, need, "Big temporary files go here (about %d GB for this choice). It can be on another drive." % need)
-    st.update(out=out, work=work)
+    step_folders(st, need)
     wav = "assets" in stages and yesno("Also decode audio to WAV (much larger, needs ffmpeg)", False)
     st["wav"] = wav
     step_jobs(st, stages)
@@ -1093,8 +1099,8 @@ def summary_rows(st, stages, wav):
 
 def build_command(st, stages, wav):
     cmd = [sys.executable, "-I", os.path.join(ROOT, "make_game.py"), "--game", st["game"], "--stages", stages]
-    if "out" in st and stages != "check":
-        cmd += ["--out", st["out"], "--work", st["work"]]
+    if st.get("out") and stages != "check":   # a work folder never chosen is <output>\work, as make_game.py's own default
+        cmd += ["--out", st["out"], "--work", st.get("work") or os.path.join(st["out"], "work")]
     cmd += ["--jobs", str(jobs_for(st, stages))]
     if "runtime" in stages.split(",") and st.get("sdl3"):
         cmd += ["--fetch-sdl3"]
@@ -1309,6 +1315,11 @@ def screen_update(st):
         pause()
         return
     stages = "check," + ",".join(steps)
+    if not st.get("out"):
+        # Never fall back to make_game.py's default (Documents, on C:) without asking.
+        line("info", "No output folder is saved yet. Choose where the build goes.")
+        step_folders(st, 30 if "shaders" in steps else 1)
+    note("Building into: " + st["out"] + "   (work files: " + (st.get("work") or os.path.join(st["out"], "work")) + ")")
     if not yesno("Rebuild now (%s)" % " and ".join(steps), True):
         note("You can rebuild later with Start (Runtime only, or Run the port when the shaders changed).")
         pause()
