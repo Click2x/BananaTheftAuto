@@ -3192,6 +3192,16 @@ struct DeviceState {
     std::mutex released_ring_mutex;
     std::array<ReleasedRange, 4096> released_ring{};
     std::uint64_t released_ring_next = 0;
+    // The ranges released since release count `since` (appended to `out`), or false when more were than are kept.
+    bool released_since(std::uint64_t since, std::vector<std::pair<std::uint64_t, std::uint64_t>>& out) {
+        std::lock_guard lock(released_ring_mutex);
+        if (released_ring_next < since || released_ring_next - since > released_ring.size()) return false;
+        for (std::uint64_t g = since; g < released_ring_next; ++g) {
+            const ReleasedRange& r = released_ring[g % released_ring.size()];
+            out.emplace_back(r.address, r.address + r.bytes);
+        }
+        return true;
+    }
     // The latest released backing that held `address` (diagnostic): how long ago, or false when none of the last 4096.
     bool released_holding(std::uint64_t address, ReleasedRange& out) {
         std::lock_guard lock(released_ring_mutex);
@@ -3210,11 +3220,11 @@ struct DeviceState {
         if (add) gpu_backings.insert(address, bytes, id);
         else {
             gpu_backings.erase(address, id);
-            released_backings.fetch_add(1, std::memory_order_release);
-            if (leonida::address_guard::enabled()) {  // for naming the guard's refusals (update_address_guard)
-                std::lock_guard released(released_ring_mutex);
-                released_ring[released_ring_next++ % released_ring.size()] = {address, bytes, GetTickCount64()};
-            }
+            // Kept for naming the guard's refusals and for the console heaps' walks (only the slots that may name a
+            // released range are fixed again): ring entry n is release n.
+            std::lock_guard released(released_ring_mutex);
+            released_ring[released_ring_next++ % released_ring.size()] = {address, bytes, GetTickCount64()};
+            released_backings.store(released_ring_next, std::memory_order_release);
         }
     }
 
@@ -3774,6 +3784,7 @@ struct DeviceState {
         double ms = 0, pages_ms = 0, fix_ms = 0, retry_ms = 0;  // ms: all; the others its parts
         double walk_ms = 0;               // LOCAL DIAGNOSTIC: the whole-heap walks after releases (part of fix_ms)
         std::uint64_t walks = 0, walks_done = 0, walks_release = 0, walks_alias = 0;
+        std::uint64_t walks_ranged = 0;  // walks that fixed only the slots naming changed ranges
     };
     std::mutex console_heap_mutex;  // taken before title_window_mutex, shadow_mutex and descriptor_mutex
     std::vector<std::unique_ptr<ConsoleHeap>> console_heaps;
@@ -3945,6 +3956,15 @@ struct DeviceState {
                      words[1], words[2], words[3], words[4], words[5], words[6], words[7]);
     }
 
+    // LEONIDA_HEAP_RANGED_WALK=0: a walk after a release or alias change fixes every buffer slot again, as before.
+    static bool changed_ranges_walk() {
+        static const bool on = [] {
+            const char* v = std::getenv("LEONIDA_HEAP_RANGED_WALK");
+            return !(v && v[0] == '0');
+        }();
+        return on;
+    }
+
     void refresh_console_heap(ConsoleHeap& heap) {  // console_heap_mutex held
         if (heap.imported) return;  // directly imported sampler heap
         using clock = std::chrono::steady_clock;
@@ -3974,6 +3994,7 @@ struct DeviceState {
             const char* v = std::getenv("LEONIDA_HEAP_RELEASE_WALK");
             return !(v && v[0] == '0');
         }();
+        const std::uint64_t walked_generation = heap.checked_generation, walked_alias = heap.alias_generation;
         if (heap.resource_heap && (generation != heap.checked_generation || alias_generation != heap.alias_generation)) {
             if (generation != heap.checked_generation) ++heap.walks_release;
             if (alias_generation != heap.alias_generation) ++heap.walks_alias;
@@ -3984,10 +4005,47 @@ struct DeviceState {
         const auto walk_start = clock::now();
         if (release_walk && heap.resource_heap && heap.walks != heap.walks_done) {
             heap.walks_done = heap.walks;
-            // Even an unchanged title slot may name a buffer released since the last submission.
+            // Even an unchanged title slot may name a buffer released, or a title range remapped, since the last
+            // walk. Only the slots whose buffers (title addresses, or the addresses they were rebased to) overlap
+            // one of those ranges are fixed again; with more changes than are remembered, all of them are.
+            std::vector<std::pair<std::uint64_t, std::uint64_t>> changed;
+            const bool ranged = changed_ranges_walk() && walked_generation <= generation &&
+                                released_since(walked_generation, changed) &&
+                                leonida::title_va_aliases().changed_since(walked_alias, changed) &&
+                                changed.size() <= 4096;
+            if (ranged) {
+                std::sort(changed.begin(), changed.end());
+                std::size_t merged = 0;  // overlapping ranges joined, so one lookup answers
+                for (const auto& r : changed) {
+                    if (merged && r.first <= changed[merged - 1].second)
+                        changed[merged - 1].second = (std::max)(changed[merged - 1].second, r.second);
+                    else
+                        changed[merged++] = r;
+                }
+                changed.resize(merged);
+                ++heap.walks_ranged;
+            }
+            const auto overlaps = [&](std::uint64_t base, std::uint64_t bytes) {
+                if (!base) return false;
+                const std::uint64_t end = base + (bytes ? bytes : 1);
+                auto it = std::upper_bound(changed.begin(), changed.end(), std::make_pair(base, ~0ull));
+                if (it != changed.end() && it->first < end) return true;
+                return it != changed.begin() && std::prev(it)->second > base;
+            };
+            const auto vsharp_base = [](const uint32_t* v) {
+                return std::uint64_t(v[0]) | (std::uint64_t(v[1] & 0xFFFFu) << 32);
+            };
             for (size_t at = 0; at + kDescriptorSize <= heap.bytes; at += kDescriptorSize) {
+                // The title's words (heap.previous, ordinary memory) say whether the slot holds buffer V#s: the copy
+                // a slot was made from. Reading the copy itself (GPU-visible memory) for every slot cost most of a
+                // walk, so it is read only for the slots that hold buffers.
+                const auto* t = reinterpret_cast<const uint32_t*>(heap.previous + at);
+                if (ranged && ((t[3] >> 30) || !(t[2] || t[6]))) continue;
                 auto* w = reinterpret_cast<uint32_t*>(heap.copy + at);
                 if (!(w[3] >> 30) && (w[2] || w[6])) {
+                    if (ranged && !overlaps(vsharp_base(t), t[2]) && !overlaps(vsharp_base(t + 4), t[6]) &&
+                        !overlaps(vsharp_base(w), w[2]) && !overlaps(vsharp_base(w + 4), w[6]))
+                        continue;
                     const auto slot = at / kDescriptorSize;
                     if (!fix_console_slot(heap, slot) && !heap.retry[slot]) {
                         heap.retry[slot] = 1;
@@ -4057,9 +4115,10 @@ struct DeviceState {
                          static_cast<unsigned long long>(heap->images[unsigned(TitleImage::refused)]),
                          static_cast<unsigned long long>(heap->images[unsigned(TitleImage::not_tsharp)]));
             std::fprintf(stderr, "[rt] d3d12: console heap release walks: %llu so far (%llu after a release, %llu after an "
-                                 "alias change), %.3f ms a submission on average\n",
+                                 "alias change; %llu only over the changed ranges), %.3f ms a submission on average\n",
                          static_cast<unsigned long long>(heap->walks), static_cast<unsigned long long>(heap->walks_release),
-                         static_cast<unsigned long long>(heap->walks_alias), heap->walk_ms / count);
+                         static_cast<unsigned long long>(heap->walks_alias),
+                         static_cast<unsigned long long>(heap->walks_ranged), heap->walk_ms / count);
             if (heap->pages) {
                 const auto& why = heap->pages->copy_bytes();
                 std::fprintf(stderr,

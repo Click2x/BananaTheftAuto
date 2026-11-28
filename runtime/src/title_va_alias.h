@@ -71,8 +71,8 @@ public:
         std::unique_lock lock(mutex_);
         const auto it = ranges_.find(title_va);
         if (it != ranges_.end() && it->second.shader_va == shader_va) {
+            note_changed(it->first, it->second.end);
             ranges_.erase(it);
-            invalidations_.fetch_add(1, std::memory_order_release);
         }
         count_.store(ranges_.size(), std::memory_order_release);
     }
@@ -335,6 +335,15 @@ public:
 
     std::size_t size() const { return count_.load(std::memory_order_acquire); }
     std::uint64_t invalidations() const { return invalidations_.load(std::memory_order_acquire); }
+    // The title ranges forgotten or replaced since invalidation count `since` (appended to `out`), or false when more
+    // happened than are remembered.
+    bool changed_since(std::uint64_t since, std::vector<std::pair<std::uint64_t, std::uint64_t>>& out) const {
+        std::shared_lock lock(mutex_);
+        const std::uint64_t now = invalidations_.load(std::memory_order_acquire);
+        if (now < since || now - since > changed_.size()) return false;
+        for (std::uint64_t g = since; g < now; ++g) out.push_back(changed_[g % changed_.size()]);
+        return true;
+    }
     void note_translation(Kind kind) { translated_[kind].fetch_add(1, std::memory_order_relaxed); }
     std::uint64_t translated(Kind kind) const { return translated_[kind].load(std::memory_order_relaxed); }
     std::uint64_t untranslated(Kind kind) const { return untranslated_[kind].load(std::memory_order_relaxed); }
@@ -351,14 +360,27 @@ private:
             auto previous = std::prev(it);
             if (previous->second.end > begin) it = previous;
         }
-        if (it != ranges_.end() && it->first < end) invalidations_.fetch_add(1, std::memory_order_release);
-        while (it != ranges_.end() && it->first < end) it = ranges_.erase(it);
+        if (it == ranges_.end() || it->first >= end) return;
+        std::uint64_t first = it->first, last = end;
+        while (it != ranges_.end() && it->first < end) {
+            last = (std::max)(last, it->second.end);
+            it = ranges_.erase(it);
+        }
+        note_changed((std::min)(first, begin), last);
+    }
+
+    // One invalidation: its range kept in a ring indexed by the invalidation count (mutex_ held exclusively).
+    void note_changed(std::uint64_t begin, std::uint64_t end) {
+        const std::uint64_t n = invalidations_.load(std::memory_order_relaxed);
+        changed_[n % changed_.size()] = {begin, end};
+        invalidations_.store(n + 1, std::memory_order_release);
     }
 
     mutable std::shared_mutex mutex_;
     std::map<std::uint64_t, Range> ranges_;  // by title VA
     std::atomic<std::size_t> count_{0};
     std::atomic<std::uint64_t> invalidations_{};
+    std::array<std::pair<std::uint64_t, std::uint64_t>, 1024> changed_{};  // [begin, end) by invalidation count
     std::mutex hook_mutex_;
     void* hook_context_ = nullptr;
     void* maker_context_ = nullptr;
