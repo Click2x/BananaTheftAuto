@@ -328,7 +328,7 @@ int main() {
             ScratchBuffers scratch(fake_get_device_proc, k_device, fake_allocate);
             VkBuffer buf1 = VK_NULL_HANDLE, buf2 = VK_NULL_HANDLE;
             VkDeviceSize off1 = 1, off2 = 1;
-            const std::uint64_t near_max = std::numeric_limits<std::uint64_t>::max() - 100u;
+            const std::uint64_t near_max = (std::numeric_limits<std::uint64_t>::max)() - 100u;
             EXPECT(scratch.get(near_max, buf1, off1));
             EXPECT(buf1 != VK_NULL_HANDLE && off1 == 0 && vk.create_buffer_calls == 1);
 

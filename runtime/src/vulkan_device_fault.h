@@ -318,7 +318,7 @@ public:
     CheckpointSubmission begin_submission(std::uint64_t call, VkQueue queue, const char* kind, std::size_t lists) {
         if (!++sequence_) ++sequence_;  // 0 is reserved for invalid markers
         return {sequence_, call, queue, kind, lists,
-                std::vector<CheckpointList>(std::min(lists, std::size_t{CheckpointMarker::max_list} + 1))};
+                std::vector<CheckpointList>((std::min)(lists, std::size_t{CheckpointMarker::max_list} + 1))};
     }
 
     void publish(CheckpointSubmission&& submission) {
@@ -361,7 +361,7 @@ public:
 private:
     void dump_dispatches() {
         std::lock_guard lock(mutex_);
-        const auto n = std::min(dispatch_count_, dispatches_.size());
+        const auto n = (std::min)(dispatch_count_, dispatches_.size());
         for (std::size_t i = dispatch_count_ - n; i < dispatch_count_; ++i) {
             const auto& d = dispatches_[i % dispatches_.size()];
             std::fprintf(stderr, "[rt] device-fault: submitted dispatch seq=%zu execute=%" PRIu64

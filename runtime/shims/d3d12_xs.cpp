@@ -7,7 +7,11 @@
 // back into the blob (d3d12_xs_rootsig.h).
 // D3D12XboxCreateDevice returns an Xbox-ABI proxy (d3d12_xs_device.h) over the PC device; only the measured slots
 // are overridden, the rest follow the PC vtable.
+#if __has_include("bta_build_id.h")
 #include "bta_build_id.h"
+#else
+#define BTA_BUILD_ID_W L"dev"
+#endif
 #include <windows.h>
 #include <d3d12.h>
 

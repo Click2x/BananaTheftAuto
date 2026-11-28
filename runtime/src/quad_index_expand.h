@@ -111,7 +111,7 @@ public:
         // A dispatch indexes its quads and their indices in 32 bits: 4 * quad + 4 and 6 * quad + 5 must fit.
         constexpr VkDeviceSize index_limit = 1u << 28;
         const VkDeviceSize chunk_limit =
-            std::min(VkDeviceSize(limits_.maxComputeWorkGroupCount[0]) * group_size, index_limit);
+            (std::min)(VkDeviceSize(limits_.maxComputeWorkGroupCount[0]) * group_size, index_limit);
         for (VkDeviceSize first = 0; first < job.quads;) {
             const std::uint32_t quads = std::uint32_t(std::min<VkDeviceSize>(chunk_limit, job.quads - first));
             const VkDeviceSize first_index = first * 4;

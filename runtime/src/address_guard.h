@@ -11,6 +11,9 @@
 // Page table (its own buffer): level 1, 65536 u32 indexed by offset bits 47..32 (0: nothing backed in that 4 GiB,
 // n: level-2 block n - 1); level 2 blocks of 2^20 bits, one per 4 KiB page, at kL1Bytes + (n - 1) * kBlockBytes.
 // The shader side is Gen.guard_function in tools/rdna2spirv.py; the two must agree on these numbers.
+#ifndef NOMINMAX
+#define NOMINMAX  // std::min/std::max in every file that includes this header
+#endif
 #include <windows.h>
 #include <vulkan/vulkan.h>
 
