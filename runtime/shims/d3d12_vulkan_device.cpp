@@ -337,6 +337,7 @@ public:
         last_ = (end_ + kPage - 1) & ~(kPage - 1);
         state_.assign((last_ - first_) / kPage, 0);
         idle_.assign(state_.size(), 0);
+        known_.assign(state_.size(), 0);
         cover_.assign(state_.size(), 1);
         targets_.push_back({begin_, end_, shadow});
         index_targets();
@@ -363,6 +364,7 @@ public:
     bool contains(std::uintptr_t address) const { return address >= first_ && address < last_; }
     std::uint64_t faults() const { return faults_.load(std::memory_order_relaxed); }
     std::uint64_t refresh_queries() const { return refresh_queries_; }
+    std::uint64_t refresh_known() const { return refresh_known_; }  // runs of aliased pages copied without asking
     std::uint64_t refresh_protects() const { return refresh_protects_; }
     bool refresh_walked_all() const { return refresh_walked_all_; }
     // GetWriteWatch calls of the last refresh(), the write-watched pages it found written, and the bytes of the
@@ -476,6 +478,7 @@ public:
             full_walk = true;
         refresh_walked_all_ = full_walk;
         refresh_protects_ = 0;
+        refresh_known_ = 0;
         if (generation != alias_generation_) {
             alias_generation_ = generation;
             for (std::uint8_t& s : state_) s &= ~kAliased;
@@ -549,6 +552,20 @@ public:
                 at = first_ + i * kPage;
                 continue;
             }
+            // Aliased pages are copied at every such refresh. One whose mapping, commitment and protection are unchanged
+            // since it was last asked about (no kRequery: the journal marks every change) is as it was then, so it is
+            // copied without asking again: the walks after the story load asked about 31,000 times a refresh, most of
+            // them over aliased pages, about 15 us each (LEONIDA_SHADOW_ALIAS_QUERY=1 asks every time).
+            if (!full_walk && copy_aliased_ && known_aliased(i0)) {
+                const std::uint8_t how = known_[i0];
+                std::size_t i = i0 + 1;
+                while (i < state_.size() && cover_[i] && known_aliased(i) && known_[i] == how) ++i;
+                for (std::size_t k = i0; k < i; ++k) state_[k] &= ~kZero;
+                add_job(i0, i, (how & kKnownStreaming) != 0, Copy::aliased);
+                ++refresh_known_;
+                at = first_ + i * kPage;
+                continue;
+            }
             MEMORY_BASIC_INFORMATION region{};
             std::uintptr_t next = at + kPage;
             Kind kind = Kind::zero;
@@ -610,7 +627,12 @@ public:
                 add_job(i0, i1, streaming, Copy::copy_on_write);
                 break;
             }
-            for (std::size_t i = i0; i < i1; ++i) state_[i] &= std::uint8_t(~kRequery);  // queried now
+            for (std::size_t i = i0; i < i1; ++i) {
+                state_[i] &= std::uint8_t(~kRequery);  // queried now
+                known_[i] = (kind == Kind::writable || kind == Kind::read_only)
+                                ? std::uint8_t(kKnownReadable | (streaming ? kKnownStreaming : 0))
+                                : std::uint8_t(0);
+            }
             at = next;
         }
         // Remember the generation from before the walk, so a change during the walk triggers another one.
@@ -650,12 +672,14 @@ public:
             const std::size_t n = (first_ - first) / kPage;
             state_.insert(state_.begin(), n, std::uint8_t(0));
             idle_.insert(idle_.begin(), n, std::uint8_t(0));
+            known_.insert(known_.begin(), n, std::uint8_t(0));
             cover_.insert(cover_.begin(), n, 0u);
             first_ = first;
         }
         if (last > last_) {
             state_.resize((last - first_) / kPage, 0);
             idle_.resize(state_.size(), 0);
+            known_.resize(state_.size(), 0);
             cover_.resize(state_.size(), 0);
             last_ = last;
         }
@@ -675,6 +699,7 @@ public:
             state_[at + i] |= other.state_[i];
             cover_[at + i] += other.cover_[i];
             idle_[at + i] = other.idle_[i];
+            known_[at + i] = other.known_[i];
         }
         targets_.insert(targets_.end(), other.targets_.begin(), other.targets_.end());
         if (other.map_generation_ != map_generation_) map_generation_ = ~std::uint64_t(0);
@@ -849,6 +874,17 @@ private:
         if ((s & (kWatched | kHot)) != (kWatched | kHot)) return Watch::guard;
         if (s & (kAliased | kPinned)) return Watch::open;
         return s & kClean ? Watch::clean : Watch::written;
+    }
+    // An aliased page (only aliased: not pinned, zero, guarded here or to be queried again) whose last VirtualQuery
+    // found it readable, and that isn't write-watched and hot: copied without asking again.
+    bool known_aliased(std::size_t i) const {
+        static const bool ask_always = [] {
+            const char* v = std::getenv("LEONIDA_SHADOW_ALIAS_QUERY");
+            return v && v[0] == '1';
+        }();
+        const std::uint8_t s = state_[i];
+        return !ask_always && known_[i] && (s & (kAliased | kPinned | kZero | kProtected | kRequery)) == kAliased &&
+               watch_of(s) == Watch::guard;
     }
     // A page known unchanged since the last refresh, which one that doesn't walk everything passes over.
     static bool unchanged(std::uint8_t s) {
@@ -1186,6 +1222,7 @@ private:
     std::array<std::uint64_t, unsigned(Copy::count)> copy_bytes_{};  // refresh() only, likewise
     bool copy_aliased_ = true;                                        // likewise
     std::uint64_t refresh_queries_ = 0;
+    std::uint64_t refresh_known_ = 0;
     std::uint64_t refresh_protects_ = 0;  // VirtualProtect calls of the last refresh()
     bool refresh_walked_all_ = false;     // the last refresh() queried every page (the title memory map changed)
     std::atomic<std::uint64_t> faults_{0};
@@ -1196,6 +1233,10 @@ private:
     std::uint64_t reader_ = 0;
     std::size_t watched_pages_ = 0, hot_pages_ = 0;  // covered pages write-watched, and hot
     Vector<std::uint8_t> idle_;  // per 4 KiB page: refreshes a hot page went without a write (kCool)
+    // Per 4 KiB page: what the last VirtualQuery said of an aliased page (kKnownReadable, kKnownStreaming), so a walk
+    // need not ask again until the title memory map's journal says it changed (kRequery). 0: ask.
+    Vector<std::uint8_t> known_;
+    static constexpr std::uint8_t kKnownReadable = 1, kKnownStreaming = 2;
     bool runs_stale_ = false;         // a page became hot or cold: watch_runs_ is rebuilt at the next refresh
     std::uint64_t refresh_asks_ = 0;
     std::uint64_t refresh_written_ = 0;
