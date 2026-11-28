@@ -3826,6 +3826,17 @@ struct DeviceState {
         double walk_ms = 0;               // LOCAL DIAGNOSTIC: the whole-heap walks after releases (part of fix_ms)
         std::uint64_t walks = 0, walks_done = 0, walks_release = 0, walks_alias = 0;
         std::uint64_t walks_ranged = 0;  // walks that fixed only the slots naming changed ranges
+        // Which buffer slots name which addresses, for the walks (2 MiB granules of the title addresses and of the
+        // addresses they were rebased to -> slots). Added to whenever fix_console_slot writes a buffer slot into the
+        // copy (the only writer of one), never removed from: a stale entry is checked and passed over. A V# over more
+        // than kIndexSpan granules is kept in index_big, looked at every walk. Built at the first indexed walk, and
+        // again (from the slots as they are) when it holds too many entries.
+        std::unordered_map<std::uint64_t, std::vector<std::uint32_t>> index;
+        std::vector<std::uint32_t> index_big;
+        std::uint64_t index_entries = 0, index_builds = 0, walks_indexed = 0, index_candidates = 0, index_missed = 0;
+        bool index_ready = false;
+        std::vector<std::uint32_t> index_seen;  // per slot: the walk that last took it as a candidate
+        std::uint32_t index_stamp = 0;
     };
     std::mutex console_heap_mutex;  // taken before title_window_mutex, shadow_mutex and descriptor_mutex
     std::vector<std::unique_ptr<ConsoleHeap>> console_heaps;
@@ -3890,6 +3901,9 @@ struct DeviceState {
         if (empty) heap.empty_slots.insert(std::uint32_t(slot));
         else if (!heap.empty_slots.empty()) heap.empty_slots.erase(std::uint32_t(slot));
         std::memcpy(heap.copy + slot * kDescriptorSize, w, kDescriptorSize);
+        if (heap.index_ready)
+            index_console_slot(heap, slot, reinterpret_cast<const std::uint32_t*>(heap.previous + slot * kDescriptorSize),
+                               w);
         return settled;
     }
 
@@ -3997,6 +4011,62 @@ struct DeviceState {
                      words[1], words[2], words[3], words[4], words[5], words[6], words[7]);
     }
 
+    static constexpr unsigned kIndexShift = 21;      // 2 MiB granules
+    static constexpr std::uint64_t kIndexSpan = 64;  // granules one V# may be filed under before it goes to index_big
+    static bool buffer_words(const std::uint32_t* v) { return !(v[3] >> 30) && (v[2] || v[6]); }
+    static std::uint64_t vsharp_address(const std::uint32_t* v) {
+        return std::uint64_t(v[0]) | (std::uint64_t(v[1] & 0xFFFFu) << 32);
+    }
+    // Files a buffer slot under the granules its V#s name: `t` the title's words, `w` what the copy holds.
+    static void index_console_slot(ConsoleHeap& heap, std::size_t slot, const std::uint32_t* t, const std::uint32_t* w) {
+        if (!buffer_words(w)) return;
+        const auto file = [&](const std::uint32_t* v) {
+            const std::uint64_t base = vsharp_address(v);
+            if (!base) return;
+            const std::uint64_t bytes = v[2] ? v[2] : 1;
+            const std::uint64_t g0 = base >> kIndexShift, g1 = (base + bytes - 1) >> kIndexShift;
+            if (g1 - g0 >= kIndexSpan) {
+                heap.index_big.push_back(std::uint32_t(slot));
+                ++heap.index_entries;
+                return;
+            }
+            for (std::uint64_t g = g0; g <= g1; ++g) {
+                auto& list = heap.index[g];
+                if (list.empty() || list.back() != std::uint32_t(slot)) {
+                    list.push_back(std::uint32_t(slot));
+                    ++heap.index_entries;
+                }
+            }
+        };
+        file(t);
+        file(t + 4);
+        file(w);
+        file(w + 4);
+    }
+    // The index from the slots as they are now: every buffer slot of the copy.
+    static void build_console_index(ConsoleHeap& heap) {
+        heap.index.clear();
+        heap.index_big.clear();
+        heap.index_entries = 0;
+        heap.index_ready = true;
+        ++heap.index_builds;
+        heap.index_seen.assign(std::size_t(heap.bytes / kDescriptorSize), 0);
+        heap.index_stamp = 0;
+        for (std::size_t at = 0; at + kDescriptorSize <= heap.bytes; at += kDescriptorSize) {
+            const auto* t = reinterpret_cast<const std::uint32_t*>(heap.previous + at);
+            if (!buffer_words(t)) continue;
+            index_console_slot(heap, at / kDescriptorSize, t, reinterpret_cast<const std::uint32_t*>(heap.copy + at));
+        }
+    }
+    // LEONIDA_HEAP_INDEX=0: ranged walks scan every slot instead of asking the index.
+    static bool console_index_on() {
+        static const bool on = [] {
+            const char* v = std::getenv("LEONIDA_HEAP_INDEX");
+            return !(v && v[0] == '0');
+        }();
+        return on;
+    }
+
     // LEONIDA_HEAP_RANGED_WALK=0: a walk after a release or alias change fixes every buffer slot again, as before.
     static bool changed_ranges_walk() {
         static const bool on = [] {
@@ -4076,23 +4146,89 @@ struct DeviceState {
             const auto vsharp_base = [](const uint32_t* v) {
                 return std::uint64_t(v[0]) | (std::uint64_t(v[1] & 0xFFFFu) << 32);
             };
-            for (size_t at = 0; at + kDescriptorSize <= heap.bytes; at += kDescriptorSize) {
+            // One slot: fixed again when it holds buffers that name a changed range (every buffer slot when not
+            // ranged).
+            const auto visit = [&](std::size_t at) {
                 // The title's words (heap.previous, ordinary memory) say whether the slot holds buffer V#s: the copy
                 // a slot was made from. Reading the copy itself (GPU-visible memory) for every slot cost most of a
                 // walk, so it is read only for the slots that hold buffers.
                 const auto* t = reinterpret_cast<const uint32_t*>(heap.previous + at);
-                if (ranged && ((t[3] >> 30) || !(t[2] || t[6]))) continue;
+                if (ranged && ((t[3] >> 30) || !(t[2] || t[6]))) return;
                 auto* w = reinterpret_cast<uint32_t*>(heap.copy + at);
                 if (!(w[3] >> 30) && (w[2] || w[6])) {
                     if (ranged && !overlaps(vsharp_base(t), t[2]) && !overlaps(vsharp_base(t + 4), t[6]) &&
                         !overlaps(vsharp_base(w), w[2]) && !overlaps(vsharp_base(w + 4), w[6]))
-                        continue;
+                        return;
                     const auto slot = at / kDescriptorSize;
                     if (!fix_console_slot(heap, slot) && !heap.retry[slot]) {
                         heap.retry[slot] = 1;
                         heap.retries.push_back(uint32_t(slot));
                     }
                 }
+            };
+            // Ranged, the index names the slots that may hold buffers over a changed range (a superset: each is
+            // checked as the scan would); with too many granules to look up, the slots are scanned instead. The index
+            // is (re)built from the slots as they are, so it holds every buffer slot of the copy.
+            std::uint64_t granules = 0;
+            for (const auto& r : changed) granules += ((r.second - 1) >> kIndexShift) - (r.first >> kIndexShift) + 1;
+            const std::size_t slots = std::size_t(heap.bytes / kDescriptorSize);
+            const bool indexed = ranged && console_index_on() && granules <= 65536;
+            if (indexed && (!heap.index_ready || heap.index_entries > 4 * std::uint64_t(slots)))
+                build_console_index(heap);
+            if (indexed) {
+                ++heap.walks_indexed;
+                if (++heap.index_stamp == 0) {
+                    std::fill(heap.index_seen.begin(), heap.index_seen.end(), 0u);
+                    heap.index_stamp = 1;
+                }
+                std::vector<std::uint32_t> candidates;
+                const auto take = [&](std::uint32_t slot) {
+                    if (slot >= heap.index_seen.size() || heap.index_seen[slot] == heap.index_stamp) return;
+                    heap.index_seen[slot] = heap.index_stamp;
+                    candidates.push_back(slot);
+                };
+                for (const auto& r : changed)
+                    for (std::uint64_t g = r.first >> kIndexShift, g1 = (r.second - 1) >> kIndexShift; g <= g1; ++g)
+                        if (const auto it = heap.index.find(g); it != heap.index.end())
+                            for (const std::uint32_t slot : it->second) take(slot);
+                for (const std::uint32_t slot : heap.index_big) take(slot);
+                std::sort(candidates.begin(), candidates.end());
+                heap.index_candidates += candidates.size();
+                // LOCAL DIAGNOSTIC (LEONIDA_HEAP_INDEX_CHECK=1): the full scan's slots that the index did not name.
+                static const bool check = [] {
+                    const char* v = std::getenv("LEONIDA_HEAP_INDEX_CHECK");
+                    return v && v[0] == '1';
+                }();
+                if (check) {
+                    std::uint64_t missed = 0;
+                    for (std::size_t at = 0; at + kDescriptorSize <= heap.bytes; at += kDescriptorSize) {
+                        const auto slot = at / kDescriptorSize;
+                        if (heap.index_seen[slot] == heap.index_stamp) continue;
+                        const auto* t = reinterpret_cast<const uint32_t*>(heap.previous + at);
+                        if ((t[3] >> 30) || !(t[2] || t[6])) continue;
+                        const auto* w = reinterpret_cast<const uint32_t*>(heap.copy + at);
+                        if ((w[3] >> 30) || !(w[2] || w[6])) continue;
+                        if (overlaps(vsharp_base(t), t[2]) || overlaps(vsharp_base(t + 4), t[6]) ||
+                            overlaps(vsharp_base(w), w[2]) || overlaps(vsharp_base(w + 4), w[6])) {
+                            if (missed < 4)
+                                std::fprintf(stderr, "[rt] d3d12: heap index missed slot %zu (title %llx, copy %llx)\n",
+                                             slot, static_cast<unsigned long long>(vsharp_base(t)),
+                                             static_cast<unsigned long long>(vsharp_base(w)));
+                            ++missed;
+                            candidates.push_back(std::uint32_t(slot));  // fixed anyway in a check run
+                        }
+                    }
+                    heap.index_missed += missed;
+                    if (missed || (heap.walks_indexed & 63) == 1)
+                        std::fprintf(stderr, "[rt] d3d12: heap index check: %llu slots missed in this walk, %llu in all "
+                                             "over %llu walks\n",
+                                     static_cast<unsigned long long>(missed),
+                                     static_cast<unsigned long long>(heap.index_missed),
+                                     static_cast<unsigned long long>(heap.walks_indexed));
+                }
+                for (const std::uint32_t slot : candidates) visit(std::size_t(slot) * kDescriptorSize);
+            } else {
+                for (size_t at = 0; at + kDescriptorSize <= heap.bytes; at += kDescriptorSize) visit(at);
             }
         }
         heap.walk_ms += std::chrono::duration<double, std::milli>(clock::now() - walk_start).count();
@@ -4156,10 +4292,16 @@ struct DeviceState {
                          static_cast<unsigned long long>(heap->images[unsigned(TitleImage::refused)]),
                          static_cast<unsigned long long>(heap->images[unsigned(TitleImage::not_tsharp)]));
             std::fprintf(stderr, "[rt] d3d12: console heap release walks: %llu so far (%llu after a release, %llu after an "
-                                 "alias change; %llu only over the changed ranges), %.3f ms a submission on average\n",
+                                 "alias change; %llu only over the changed ranges, %llu from the slot index: %.0f "
+                                 "candidate slots each, %llu index entries, %llu builds), %.3f ms a submission on "
+                                 "average\n",
                          static_cast<unsigned long long>(heap->walks), static_cast<unsigned long long>(heap->walks_release),
                          static_cast<unsigned long long>(heap->walks_alias),
-                         static_cast<unsigned long long>(heap->walks_ranged), heap->walk_ms / count);
+                         static_cast<unsigned long long>(heap->walks_ranged),
+                         static_cast<unsigned long long>(heap->walks_indexed),
+                         heap->walks_indexed ? double(heap->index_candidates) / double(heap->walks_indexed) : 0.0,
+                         static_cast<unsigned long long>(heap->index_entries),
+                         static_cast<unsigned long long>(heap->index_builds), heap->walk_ms / count);
             if (heap->pages) {
                 const auto& why = heap->pages->copy_bytes();
                 std::fprintf(stderr,
