@@ -3772,6 +3772,8 @@ struct DeviceState {
         std::uint64_t copied = 0, vsharps = 0, unbacked = 0, retried = 0;
         std::uint64_t images[5] = {};  // by TitleImage
         double ms = 0, pages_ms = 0, fix_ms = 0, retry_ms = 0;  // ms: all; the others its parts
+        double walk_ms = 0;               // LOCAL DIAGNOSTIC: the whole-heap walks after releases (part of fix_ms)
+        std::uint64_t walks = 0, walks_done = 0, walks_release = 0, walks_alias = 0;
     };
     std::mutex console_heap_mutex;  // taken before title_window_mutex, shadow_mutex and descriptor_mutex
     std::vector<std::unique_ptr<ConsoleHeap>> console_heaps;
@@ -3966,9 +3968,22 @@ struct DeviceState {
         heap.pages->for_each_copied([&](std::size_t offset, std::size_t bytes) { fix_console_slots(heap, offset, bytes); });
         const auto generation = released_backings.load(std::memory_order_acquire);
         const auto alias_generation = leonida::title_va_aliases().invalidations();
+        // LOCAL DIAGNOSTIC: LEONIDA_HEAP_RELEASE_WALK=0 skips the whole-heap walk after a release (unsafe: a slot may
+        // keep naming a released buffer); its time is logged either way (walks / walk ms in the heap line).
+        static const bool release_walk = [] {
+            const char* v = std::getenv("LEONIDA_HEAP_RELEASE_WALK");
+            return !(v && v[0] == '0');
+        }();
         if (heap.resource_heap && (generation != heap.checked_generation || alias_generation != heap.alias_generation)) {
+            if (generation != heap.checked_generation) ++heap.walks_release;
+            if (alias_generation != heap.alias_generation) ++heap.walks_alias;
             heap.alias_generation = alias_generation;
             heap.checked_generation = generation;
+            ++heap.walks;
+        }
+        const auto walk_start = clock::now();
+        if (release_walk && heap.resource_heap && heap.walks != heap.walks_done) {
+            heap.walks_done = heap.walks;
             // Even an unchanged title slot may name a buffer released since the last submission.
             for (size_t at = 0; at + kDescriptorSize <= heap.bytes; at += kDescriptorSize) {
                 auto* w = reinterpret_cast<uint32_t*>(heap.copy + at);
@@ -3981,6 +3996,7 @@ struct DeviceState {
                 }
             }
         }
+        heap.walk_ms += std::chrono::duration<double, std::milli>(clock::now() - walk_start).count();
         const auto t2 = clock::now();
         // A settled zero can acquire GPU backing without a CPU map event. Probe at most eight in
         // round-robin order every 32 submissions. Keep texture and copy-budget retries independent.
@@ -4040,6 +4056,10 @@ struct DeviceState {
                          static_cast<unsigned long long>(heap->images[unsigned(TitleImage::unknown)]),
                          static_cast<unsigned long long>(heap->images[unsigned(TitleImage::refused)]),
                          static_cast<unsigned long long>(heap->images[unsigned(TitleImage::not_tsharp)]));
+            std::fprintf(stderr, "[rt] d3d12: console heap release walks: %llu so far (%llu after a release, %llu after an "
+                                 "alias change), %.3f ms a submission on average\n",
+                         static_cast<unsigned long long>(heap->walks), static_cast<unsigned long long>(heap->walks_release),
+                         static_cast<unsigned long long>(heap->walks_alias), heap->walk_ms / count);
             if (heap->pages) {
                 const auto& why = heap->pages->copy_bytes();
                 std::fprintf(stderr,
@@ -4050,7 +4070,7 @@ struct DeviceState {
             }
             heap->copied = heap->vsharps = heap->unbacked = heap->retried = heap->deferred_fixes = 0;
             for (auto& n : heap->images) n = 0;
-            heap->ms = heap->pages_ms = heap->fix_ms = heap->retry_ms = 0;
+            heap->ms = heap->pages_ms = heap->fix_ms = heap->retry_ms = heap->walk_ms = 0;
         }
     }
 

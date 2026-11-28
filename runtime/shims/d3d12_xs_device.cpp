@@ -203,6 +203,11 @@ struct DescriptorRange {
     bool mapped;
     const DeviceProxy* device;
     const HeapProxy* heap;
+    // Whole-range accessibility, asked once (VirtualQuery per table bind was most of a world frame's CPU time):
+    // -1 not asked yet, 1 accessible, 0 not as a whole (each call then checks its own span, as before). Only checks
+    // that cannot change while the range is registered are cached: reading the title's slots and writing the real heap
+    // (the layer's own mapping). Writing the title's slots is still checked every time (a write watch may protect it).
+    mutable signed char real_writable = -1, custom_readable = -1;
 };
 
 // Immortal: late COM Release calls during process teardown may still unregister a heap or check the table.
@@ -328,10 +333,21 @@ void local_write_through(const DeviceProxy* device, D3D12_CPU_DESCRIPTOR_HANDLE 
     }
 }
 
-// Caller holds descriptor_range_mutex, keeping the backing alive for the complete copy.
-std::uint64_t copy_title_slots(std::uint8_t* dest, SIZE_T source, SIZE_T bytes) {
+// A range's cached whole-range check, or the span's own check when the whole range is not accessible.
+bool range_accessible(signed char& cached, SIZE_T range_start, SIZE_T range_bytes, std::uint64_t address,
+                      std::uint64_t bytes, bool write) {
+    if (cached < 0) cached = local_accessible(range_start, range_bytes, write) ? 1 : 0;
+    return cached ? true : local_accessible(address, bytes, write);
+}
+
+// Caller holds descriptor_range_mutex, keeping the backing alive for the complete copy. `range`: the source's range,
+// for its cached read check (null: checked here).
+std::uint64_t copy_title_slots(std::uint8_t* dest, SIZE_T source, SIZE_T bytes, const DescriptorRange* range = nullptr) {
     const SIZE_T slots = bytes / kLocalDescriptorBytes;
-    if (!local_accessible(source, bytes, false)) return 0;
+    if (range ? !range_accessible(range->custom_readable, range->custom_start, range->custom_end - range->custom_start,
+                                  source, bytes, false)
+              : !local_accessible(source, bytes, false))
+        return 0;
     std::uint64_t copied = 0;
     for (SIZE_T i = 0; i < slots; ++i) {
         const SIZE_T at = i * kLocalDescriptorBytes;
@@ -355,7 +371,7 @@ std::uint64_t pull_title_descriptors(void*, std::uint8_t* real, std::size_t byte
         const SIZE_T offset = addr - range.real_start;
         if (offset % kLocalDescriptorBytes) return 0;
         // real is the queue's live vkMapMemory destination. Wine can report it as free to VirtualQuery.
-        return copy_title_slots(real, range.custom_start + offset, std::min(bytes, size - offset));
+        return copy_title_slots(real, range.custom_start + offset, std::min(bytes, size - offset), &range);
     }
     return 0;
 }
@@ -373,9 +389,10 @@ void local_mirror_table(const DeviceProxy* device, std::uint64_t gpu_handle) {
         const std::uint64_t offset = (gpu_handle - gpu_start) / kLocalDescriptorBytes * kLocalDescriptorBytes;
         const std::uint64_t slots = (std::min<std::uint64_t>)(kLocalMirrorSlots, (bytes - offset) / kLocalDescriptorBytes);
         const SIZE_T copy_bytes = slots * kLocalDescriptorBytes;
-        if (!local_accessible(range.real_start + offset, copy_bytes, true)) return;
+        if (!range_accessible(range.real_writable, range.real_start, bytes, range.real_start + offset, copy_bytes, true))
+            return;
         const auto copied = copy_title_slots(reinterpret_cast<std::uint8_t*>(range.real_start + offset),
-                                             range.custom_start + offset, copy_bytes);
+                                             range.custom_start + offset, copy_bytes, &range);
         static std::atomic<int> said{0};
         if (said.fetch_add(1) < 4)
             std::fprintf(stderr, "[rt] d3d12_xs: local: table at heap offset 0x%llx: %llu of %llu slots taken from the "
