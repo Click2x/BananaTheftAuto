@@ -423,6 +423,8 @@ def run_workgroup(text, invocations, subgroup_size, inputs_for=None, push_consta
       * OpGroupNonUniformAny / All: the predicate of any / every running lane.
       * OpGroupNonUniformBitwiseOr Reduce: the OR of every running lane's value.
       * OpGroupNonUniformBroadcastFirst: the value of the lowest running lane.
+      * OpGroupNonUniformQuadBroadcast / QuadSwap (Direction 0, 1, 2 = lane ^ 1, ^ 2, ^ 3): the value of the lane
+        of the caller's quad (lanes 4n..4n+3) at that index; undefined when no invocation takes that lane.
 
     With `return_outputs=True`, also return each invocation's Output variables in invocation order.
 
@@ -433,7 +435,9 @@ def run_workgroup(text, invocations, subgroup_size, inputs_for=None, push_consta
 
     `helpers` names invocations that run the shader but take no part in subgroup operations, as helper lanes a
     driver leaves out: their ballot bit is never set, they count for no vote or reduction, and a shuffle from their
-    lane is undefined. They still receive each operation's result over the others.
+    lane is undefined. They still receive each operation's result over the others. Quad operations do include them:
+    Vulkan requires a helper that would be active if it were not a helper to be active for derivative and quad
+    group operations ("Helper Invocations").
     """
     if out_of_range not in ("raise", "wrap"):
         raise ValueError(f"out_of_range: {out_of_range!r}")
@@ -501,6 +505,20 @@ def run_workgroup(text, invocations, subgroup_size, inputs_for=None, push_consta
                                               f"{subgroup_size}-wide subgroup")
                     ident %= subgroup_size
                 results.append(group[ident][2] if ident in group else UNDEF)
+            elif kind in ("OpGroupNonUniformQuadBroadcast", "OpGroupNonUniformQuadSwap"):
+                # Helpers take part: Vulkan keeps a helper active for quad operations.
+                quad = {slots[j] % subgroup_size: pending[j] for j in range(invocations)
+                        if slots[j] // subgroup_size == sub}
+                lane = slots[i] % subgroup_size
+                if kind == "OpGroupNonUniformQuadBroadcast":
+                    if not 0 <= ident < 4:
+                        raise UnsupportedConstruct(f"OpGroupNonUniformQuadBroadcast index {ident}")
+                    partner = (lane & ~3) | ident
+                else:
+                    if ident not in (0, 1, 2):
+                        raise UnsupportedConstruct(f"OpGroupNonUniformQuadSwap direction {ident}")
+                    partner = lane ^ (ident + 1)
+                results.append(quad[partner][2] if partner in quad else UNDEF)
             else:
                 raise UnsupportedConstruct(kind)
         for i in range(invocations):
@@ -1071,6 +1089,11 @@ def _invocation(text, inputs, push_constants, memory, step=False, workgroup=None
         elif op == "OpGroupNonUniformShuffle":
             if types.t[a[0]][0] != "int" or val(a[1]) != 3:
                 raise UnsupportedConstruct("OpGroupNonUniformShuffle other than a Subgroup-scope integer")
+            values[res] = yield (op, pc - 1, val(a[2]), val(a[3]))
+        elif op in ("OpGroupNonUniformQuadBroadcast", "OpGroupNonUniformQuadSwap"):
+            # <type> <scope> <value> <index | direction>: the value of an invocation of this one's quad (run_workgroup).
+            if types.t[a[0]][0] != "int" or val(a[1]) != 3:
+                raise UnsupportedConstruct(f"{op} other than a Subgroup-scope integer")
             values[res] = yield (op, pc - 1, val(a[2]), val(a[3]))
         elif op == "OpGroupNonUniformBallot":
             # OpGroupNonUniformBallot <uvec4 type> <scope> <bool predicate>

@@ -1447,6 +1447,9 @@ void test_compat_modules() {
 }  // namespace
 
 int main() {
+    // The test loads images Windows refuses on purpose (compat_bad\testcompat.dll, 0xc000012f). Without this the
+    // loader's hard-error path shows a "Bad Image" dialog for each one on the desktop of whoever runs the suite.
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
     g_dir = work_dir();
     std::error_code ec;
     std::filesystem::remove_all(g_dir, ec);

@@ -73,6 +73,32 @@ class ManifestTests(unittest.TestCase):
         bad({"archetype_swaps": "all"}, '"archetype_swaps" must be a list')
         bad([1, 2], "not a JSON object")
 
+    def test_lua_mods_are_listed_without_swaps_and_scripts_stay_in_the_folder(self):
+        lua = leonida_mods.validate_manifest({"name": "Lua", "script": "main.lua", "enabled": False}, "lua_mod")
+        self.assertEqual((lua.script, lua.enabled, lua.swaps, lua.warnings), ("main.lua", False, [], []))
+        both = leonida_mods.validate_manifest(
+            {"script": "src/main.lua", "archetype_swaps": [{"from": "cs_mandy", "to": "cs_lucia"}]}, "both")
+        self.assertEqual((both.script, len(both.swaps)), ("src/main.lua", 1))
+        # An asset mod still warns that it changes nothing without swaps.
+        self.assertTrue(leonida_mods.validate_manifest({}, "plain").warnings)
+        for script in ("../main.lua", "/main.lua", "C:main.lua", "a" + chr(92) + "b.lua", "main.txt", "", 3):
+            with self.assertRaises(leonida_mods.ModsError, msg=repr(script)):
+                leonida_mods.validate_manifest({"script": script}, "bad")
+
+    def test_a_lua_mod_in_the_list_and_the_json_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mods = Path(tmp) / "mods"
+            write_json(mods / "lua_mod" / "mod.json", {"name": "Lua", "script": "main.lua"})
+            code, out, err = cli("--dir", str(mods), "list")
+            self.assertEqual((code, err), (0, ""))
+            self.assertIn("lua_mod: Lua [enabled; Lua main.lua]", out)
+            self.assertIn("script main.lua is not in the mod folder", out)
+            (mods / "lua_mod" / "main.lua").write_text("-- empty" + chr(10), encoding="utf-8", newline="")
+            code, out, err = cli("--dir", str(mods), "list", "--json")
+            self.assertEqual(code, 0, err)
+            report = json.loads(out)["mods"][0]
+            self.assertEqual((report["script"], report["warnings"]), ("main.lua", []))
+
 
 class ManagerTests(unittest.TestCase):
     def test_new_list_enable_disable_and_uninstall(self):
@@ -183,6 +209,13 @@ class SamplesAndGuiTests(unittest.TestCase):
         self.assertFalse(by_folder["mandy_to_monalisa"].enabled)
         active = leonida_mods.active_swaps(mods)
         self.assertEqual(active, {0xE472B687: by_folder["mandy_prison_intro"].swaps[0]})
+
+    def test_the_lua_example_mod_is_listed_and_disabled(self):
+        mods, errors = leonida_mods.load_mods(str(ROOT / "mods"))
+        self.assertEqual(errors, [])
+        example = {m.folder: m for m in mods}["example_lua"]
+        self.assertEqual((example.script, example.enabled, example.warnings), ("main.lua", False, []))
+        self.assertEqual(leonida_mods.active_swaps(mods).keys(), {0xE472B687})
 
     def test_gui_is_an_explicit_lazy_tkinter_entry_point(self):
         source = (ROOT / "tools" / "leonida_mods.py").read_text(encoding="utf-8")

@@ -1,7 +1,8 @@
 // Host CPU preflight for --init and --run: the game executes AVX instructions from its TLS callbacks on, so a host
 // whose CPU or OS lacks AVX (a QEMU qemu64 guest, for one) dies there with a bare EXCEPTION_ILLEGAL_INSTRUCTION
 // (0xC000001D) that reads like a loader bug. This checks AVX only, which is what was measured; it claims nothing
-// about AVX2, FMA or BMI2. No emulation here: that is RT-500's scope. Rosetta on macOS runs AVX code but leaves
+// about AVX2, FMA or BMI2. No emulation here: the console-only instructions (CLZERO, SSE4a, ...) are emulated by
+// console_insn.h's handler. Rosetta on macOS runs AVX code but leaves
 // AVX out of CPUID unless ROSETTA_ADVERTISE_AVX=1 is set, so the check fails there until that variable is set.
 #pragma once
 

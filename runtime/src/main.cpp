@@ -145,6 +145,7 @@ void start_title_peek(std::uint8_t* base) {
 #include "base_reservation.h"
 #include "code_hooks.h"
 #include "cpu_emulation.h"
+#include "frame_step.h"
 #include "host_cpu.h"
 #include "mods.h"
 #include "pe_loader.h"
@@ -215,6 +216,27 @@ bool configure_first_run_ui(const std::filesystem::path& package, std::filesyste
         if (error || !set_default(L"LEONIDA_XMEM_BACKING_DIR", backing.c_str())) return false;
     }
     return SetCurrentDirectoryW(package.c_str()) != FALSE;
+}
+
+// The title's time step (src/frame_step.h, from upstream 2694497e8): the measured frame time at any frame rate, unless
+// LEONIDA_TIME_STEP=stock. Below 15 fps the stock step slows the world to fps/15 of real time.
+void apply_frame_step(const rt::Module& module) {
+    char value[32] = {};
+    const DWORD length = GetEnvironmentVariableA("LEONIDA_TIME_STEP", value, sizeof(value));
+    bool known = true;
+    const bool wanted = leonida::frame_step::wanted(length < sizeof(value) ? value : "?", &known);
+    if (!known) std::fprintf(stderr, "[rt] time step: LEONIDA_TIME_STEP is not measured or stock; measured\n");
+    if (!wanted) {
+        std::fprintf(stderr, "[rt] time step: %s keeps its own step (1/30 to 1/15 s a frame)\n", module.name.c_str());
+        return;
+    }
+    std::string error;
+    if (leonida::frame_step::apply_to_image(module.base, module.size, leonida::frame_step::plan(), &error))
+        std::fprintf(stderr, "[rt] time step: %s steps by the measured frame time (1/3000 to 1 s a frame; "
+                             "LEONIDA_TIME_STEP=stock for its own)\n", module.name.c_str());
+    else
+        std::fprintf(stderr, "[rt] time step: %s keeps its own step: %s (nothing patched)\n", module.name.c_str(),
+                     error.c_str());
 }
 
 int usage() {
@@ -417,6 +439,7 @@ int wmain(int argc, wchar_t** argv) {
     try {
         rt::Loader loader(game_dir);
         rt::Module& main_module = loader.load(image);  // maps, binds and installs TLS; runs no image code
+        if (init || run) apply_frame_step(main_module);
         // An executable with TLS that did not get index 0: its /GA code would read and write the TLS in slot 0, which
         // is gta6rt's own (or another executable's), so no code of it may run.
         const auto* main_nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(

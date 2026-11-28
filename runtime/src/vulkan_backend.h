@@ -1570,8 +1570,8 @@ public:
         std::unique_lock lock(resource_mutex_);
         graphics_pipelines_[id] = pipeline;
         if (shaders && device_fault_) device_fault_->pipeline_names[id] = *shaders;
-        if (shaders) {  // LEONIDA_GPU_PROFILE: a draw is named by its pixel (else vertex) shader
-            const char* named = (*shaders)[1] ? (*shaders)[1] : (*shaders)[0];
+        if (shaders) {  // LEONIDA_GPU_PROFILE: a draw is named by its pixel shader (stage 2), else the vertex/mesh one
+            const char* named = (*shaders)[2] ? (*shaders)[2] : (*shaders)[1] ? (*shaders)[1] : (*shaders)[0];
             leonida::gpu_profile::Profiler::get().name(id, named);
         }
     }

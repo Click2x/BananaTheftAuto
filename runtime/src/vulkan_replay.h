@@ -61,6 +61,7 @@
 #include <functional>
 #include <limits>
 #include <map>
+#include <set>
 #include <mutex>
 #include <memory>
 #include <optional>
@@ -4343,7 +4344,7 @@ inline void emit_commands(const PreparedList& prepared, VkCommandBuffer command_
         }
     };
 
-    gpu_profile::Profiler::get().start(command_buffer);  // LEONIDA_GPU_PROFILE
+    if (gpu_profile::enabled()) gpu_profile::Profiler::get().start(command_buffer);  // LEONIDA_GPU_PROFILE
     for (std::size_t i = 0; i < commands.size(); ++i) {
         const auto& command = commands[i];
         const auto& p = prepared.commands[i];
@@ -4352,7 +4353,9 @@ inline void emit_commands(const PreparedList& prepared, VkCommandBuffer command_
         struct ProfileAfter {
             VkCommandBuffer cb;
             std::uint64_t key;
-            ~ProfileAfter() { gpu_profile::Profiler::get().after(cb, key); }
+            ~ProfileAfter() {
+                if (gpu_profile::enabled()) gpu_profile::Profiler::get().after(cb, key);
+            }
         } profile_after{command_buffer, [&]() -> std::uint64_t {
             if (!gpu_profile::enabled()) return 0;
             std::uint64_t id = 0;
@@ -5181,6 +5184,24 @@ inline void emit_commands(const PreparedList& prepared, VkCommandBuffer command_
                         }
                         std::fprintf(stderr, "\n");
                     }
+                }
+            }
+            // LOCAL DIAGNOSTIC (LEONIDA_TINY_TARGETS=1, with LEONIDA_GPU_PROFILE=1 for names): each pipeline that draws
+            // into a render area of at most 8x8 (the exposure statistics are 1x1 and 5x1), once.
+            {
+                static const bool tiny_on = [] {
+                    const char* v = std::getenv("LEONIDA_TINY_TARGETS");
+                    return v && *v == '1';
+                }();
+                if (tiny_on && d.area.width <= 8 && d.area.height <= 8) {
+                    static std::mutex tiny_mutex;
+                    static std::set<std::uint64_t> seen;
+                    std::lock_guard<std::mutex> lock(tiny_mutex);
+                    if (seen.size() < 64 && seen.insert(std::uint64_t(draw->pipeline)).second)
+                        std::fprintf(stderr, "[rt] tiny-target draw: pipeline %llx (%s) area %ux%u, %zu colour slots, %s\n",
+                                     static_cast<unsigned long long>(draw->pipeline),
+                                     gpu_profile::Profiler::get().name_of(std::uintptr_t(draw->pipeline)).c_str(),
+                                     d.area.width, d.area.height, d.colors.size(), d.skipped ? "SKIPPED" : "drawn");
                 }
             }
             if (d.skipped) continue;  // could not be resolved in prepare: dropped

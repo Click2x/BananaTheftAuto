@@ -221,6 +221,56 @@ HRESULT STDMETHODCALLTYPE ui_error_dialog_result(void*, XAsyncBlock* async) {
     return XAsyncGetResult(async, &kErrorDialogIdentity, 0, nullptr, nullptr);
 }
 
+// 7: HRESULT XGameUiShowPlayerProfileCardAsync(XAsyncBlock* async, XUserHandle requestingUser, uint64_t targetPlayer)
+// 8: HRESULT XGameUiShowPlayerProfileCardResult(XAsyncBlock* async)
+// Ported from VIctory victory-hle src/modules/xgameui.rs (GPL-3.0-or-later): there is no card to show offline, so
+// the call completes at once with S_OK, as when the user closes the card.
+const char kProfileCardIdentity = 0, kTextEntryIdentity = 0;
+HRESULT STDMETHODCALLTYPE ui_profile_card_async(void*, XAsyncBlock* async, void*, uint64_t) {
+    if (!async) return E_POINTER;
+    return XAsyncBegin(async, nullptr, &kProfileCardIdentity, "XGameUiShowPlayerProfileCardAsync", error_dialog_provider);
+}
+HRESULT STDMETHODCALLTYPE ui_profile_card_result(void*, XAsyncBlock* async) {
+    return XAsyncGetResult(async, &kProfileCardIdentity, 0, nullptr, nullptr);
+}
+
+// 17: HRESULT XGameUiShowTextEntryAsync(XAsyncBlock* async, const char* titleText, const char* descriptionText,
+//         const char* defaultText, XGameUiTextEntryInputScope inputScope, uint32_t maxTextLength)
+// 18: HRESULT XGameUiShowTextEntryResultSize(XAsyncBlock* async, uint32_t* resultTextBufferSize)
+// 19: HRESULT XGameUiShowTextEntryResult(XAsyncBlock* async, uint32_t resultTextBufferSize, char* resultTextBuffer,
+//         uint32_t* resultTextBufferUsed)
+// The entry is dismissed: it completes with E_ABORT, which the title treats as cancelled and goes on (VIctory
+// xgameui.rs, measured on the same title; any other failure it treats as an error). VIctory shows a host dialog to
+// type into; that part is not ported.
+HRESULT CALLBACK cancelled_provider(XAsyncOp op, const XAsyncProviderData* data) {
+    if (op == XAsyncOp::Begin) return XAsyncSchedule(data->async, 0);
+    if (op == XAsyncOp::DoWork) XAsyncComplete(data->async, E_ABORT, 0);
+    return S_OK;
+}
+HRESULT STDMETHODCALLTYPE ui_text_entry_async(void*, XAsyncBlock* async, const char* title, const char*, const char*,
+                                              uint32_t, uint32_t max_length) {
+    if (!async) return E_POINTER;
+    std::fprintf(stderr, "[rt] game text entry: \"%s\" (up to %u characters) [cancelled offline]\n", title ? title : "",
+                 max_length);
+    return XAsyncBegin(async, nullptr, &kTextEntryIdentity, "XGameUiShowTextEntryAsync", cancelled_provider);
+}
+HRESULT STDMETHODCALLTYPE ui_text_entry_size(void*, XAsyncBlock* async, uint32_t* size) {
+    if (!size) return E_POINTER;
+    *size = 0;
+    size_t bytes = 0;
+    const HRESULT hr = XAsyncGetResultSize(async, &bytes);
+    if (SUCCEEDED(hr)) *size = static_cast<uint32_t>(bytes);
+    return hr;
+}
+HRESULT STDMETHODCALLTYPE ui_text_entry_result(void*, XAsyncBlock* async, uint32_t size, char* buffer, uint32_t* used) {
+    if (used) *used = 0;
+    if (buffer && size) buffer[0] = '\0';
+    size_t written = 0;
+    const HRESULT hr = XAsyncGetResult(async, &kTextEntryIdentity, size, buffer, &written);
+    if (SUCCEEDED(hr) && used) *used = static_cast<uint32_t>(written);
+    return hr;
+}
+
 // 16: XGameUiSetNotificationPositionHint(position): there are no notifications to place.
 HRESULT STDMETHODCALLTYPE ui_set_notification_hint(void*) { return S_OK; }
 
@@ -234,8 +284,8 @@ const void* const kUiVtable[] = {
     FN(ui_message_dialog_result),      // 4  XGameUiShowMessageDialogResult
     FN(ui_offline<5>),                 // 5  XGameUiShowSendGameInviteAsync
     FN(ui_offline<6>),                 // 6  XGameUiShowSendGameInviteResult
-    FN(ui_offline<7>),                 // 7  XGameUiShowPlayerProfileCardAsync
-    FN(ui_offline<8>),                 // 8  XGameUiShowPlayerProfileCardResult
+    FN(ui_profile_card_async),         // 7  XGameUiShowPlayerProfileCardAsync
+    FN(ui_profile_card_result),        // 8  XGameUiShowPlayerProfileCardResult
     FN(ui_offline<9>),                 // 9  XGameUiShowAchievementsAsync
     FN(ui_offline<10>),                // 10 XGameUiShowAchievementsResult
     FN(ui_offline<11>),                // 11 XGameUiShowPlayerPickerAsync
@@ -244,9 +294,9 @@ const void* const kUiVtable[] = {
     FN(ui_error_dialog_async),         // 14 XGameUiShowErrorDialogAsync
     FN(ui_error_dialog_result),        // 15 XGameUiShowErrorDialogResult
     FN(ui_set_notification_hint),      // 16 XGameUiSetNotificationPositionHint
-    FN(ui_offline<17>),                // 17 XGameUiShowTextEntryAsync
-    FN(ui_offline<18>),                // 18 XGameUiShowTextEntryResultSize
-    FN(ui_offline<19>),                // 19 XGameUiShowTextEntryResult
+    FN(ui_text_entry_async),           // 17 XGameUiShowTextEntryAsync
+    FN(ui_text_entry_size),            // 18 XGameUiShowTextEntryResultSize
+    FN(ui_text_entry_result),          // 19 XGameUiShowTextEntryResult
     FN(ui_unknown<20>),                // 20 (unknown in the docs)
     FN(ui_unknown<21>),                // 21 (unknown in the docs)
     FN(ui_unknown<22>),                // 22 (unknown in the docs)

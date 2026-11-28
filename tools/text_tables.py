@@ -541,6 +541,7 @@ def main(argv=None) -> int:
                 pass
         for tmp, _ in staged:
             try:
+                os.chmod(tmp, 0o600)
                 os.remove(tmp)
             except OSError:
                 pass
@@ -549,6 +550,7 @@ def main(argv=None) -> int:
     for backup in originals.values():
         if backup is not None:
             try:
+                os.chmod(backup, 0o600)
                 os.remove(backup)
             except OSError:
                 pass

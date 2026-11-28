@@ -24,6 +24,11 @@ From now on you don't need the command window. Just open the menu and press **U 
 5. If the update needs a rebuild, press **Y** and it rebuilds only what changed.
 6. Close the menu and open `Leonida.bat` again so you're running the newest menu.
 
+## Updating to the 28 Nov build
+
+- **A runtime rebuild only, no shader work.** The menu rebuilds the runtime after the update (a few minutes). Your
+  translated shaders and shader cache stay as they are.
+
 ## Which build do I have?
 
 Every build has an id like `2026.11.27-c246593c9` (the date and the commit). You'll see it:

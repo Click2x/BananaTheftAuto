@@ -83,12 +83,16 @@ class SwizzleExecTests(unittest.TestCase):
         for pattern in ("QUAD_PERM,1,0,3,2", "SWAP,1"):
             lines = [line.replace("QUAD_PERM,1,0,3,2", pattern) for line in instructions]
             spv = support.translate_lines("ps_swizzle_exec", lines)
-            for lanes in (32, 7):
+            # Both stay in the quad, so in a pixel shader they are quad operations (docs/design.md, "Quad-confined
+            # DPP and ds_swizzle in pixel shaders"). A pixel wave holds whole quads (Vulkan starts helpers for the
+            # uncovered pixels of one), so the partial waves run here have whole quads too; a lane absent from its
+            # quad, which only a compute shader has, is test_ds_swizzle_b32.py's case.
+            self.assertIn("OpGroupNonUniformQuadSwap", spv)
+            self.assertNotIn("OpGroupNonUniformShuffle", spv)
+            for lanes in (32, 8):
                 with self.subTest(pattern=pattern, lanes=lanes):
                     # Lane 0 reads disabled lane 1. Lane 1 keeps its destination. Lanes 2/3 exchange active data.
                     expected = [0, 0x3f000000, 0x3f400000, 0x3f400000] * 8
-                    if lanes == 7:
-                        expected[6] = 0  # translator's model for absent lane 7; unverified on hardware
                     self.assertEqual(run(spv, lanes, 32), expected[:lanes])
 
 

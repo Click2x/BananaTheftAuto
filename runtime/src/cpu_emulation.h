@@ -404,9 +404,74 @@ inline ClzeroLoopResult try_clzero_loop(const uint8_t* code, std::size_t avail, 
     return ClzeroLoopResult::ok;
 }
 
+// LOCAL DIAGNOSTIC (LEONIDA_CPU_EMU_STATS=1): every 5 s, how many instructions of each kind were emulated and the
+// sites that raised the most, so the cost of emulating one exception at a time can be weighed. Off: nothing counted.
+struct EmuStats {
+    static constexpr std::size_t kSites = 4096;
+    std::atomic<uint64_t> rip[kSites]{};
+    std::atomic<uint64_t> hits[kSites]{};
+    std::atomic<uint64_t> per_op[9]{};
+    std::atomic<uint64_t> next_report{0};
+};
+inline EmuStats* emu_stats() {
+    static EmuStats* const s = [] {
+        char v[4] = {};
+        return GetEnvironmentVariableA("LEONIDA_CPU_EMU_STATS", v, sizeof v) && v[0] == '1' ? new EmuStats : nullptr;
+    }();
+    return s;
+}
+inline void note_emulated(Op op, uint64_t rip) {
+    EmuStats* s = emu_stats();
+    if (!s) return;
+    s->per_op[int(op)].fetch_add(1, std::memory_order_relaxed);
+    std::size_t i = std::size_t((rip * 0x9E3779B97F4A7C15ull) >> 52) & (EmuStats::kSites - 1);
+    for (std::size_t probe = 0; probe < 16; ++probe, i = (i + 1) & (EmuStats::kSites - 1)) {
+        uint64_t have = s->rip[i].load(std::memory_order_relaxed);
+        if (have == 0 && s->rip[i].compare_exchange_strong(have, rip, std::memory_order_relaxed)) have = rip;
+        if (have == rip) {
+            s->hits[i].fetch_add(1, std::memory_order_relaxed);
+            break;
+        }
+    }
+    const uint64_t now = GetTickCount64();
+    uint64_t due = s->next_report.load(std::memory_order_relaxed);
+    if (due == 0) {
+        s->next_report.compare_exchange_strong(due, now + 5000, std::memory_order_relaxed);
+        return;
+    }
+    if (now < due || !s->next_report.compare_exchange_strong(due, now + 5000, std::memory_order_relaxed)) return;
+    // This thread reports; counting goes on meanwhile (a few may land in the next window).
+    uint64_t ops[9];
+    for (int k = 0; k < 9; ++k) ops[k] = s->per_op[k].exchange(0, std::memory_order_relaxed);
+    struct Top {
+        uint64_t rip, n;
+    } top[8] = {};
+    for (std::size_t k = 0; k < EmuStats::kSites; ++k) {
+        const uint64_t n = s->hits[k].exchange(0, std::memory_order_relaxed);
+        if (!n) continue;
+        Top t{s->rip[k].load(std::memory_order_relaxed), n};
+        for (Top& slot : top)
+            if (t.n > slot.n) std::swap(t, slot);
+    }
+    std::fprintf(stderr,
+                 "[rt] cpu-emu: last 5 s: INSERTQ %llu EXTRQ %llu CLZERO %llu MONITORX %llu MWAITX %llu CLWB %llu; "
+                 "top sites:",
+                 static_cast<unsigned long long>(ops[int(Op::insertq_imm)] + ops[int(Op::insertq_reg)]),
+                 static_cast<unsigned long long>(ops[int(Op::extrq_imm)] + ops[int(Op::extrq_reg)]),
+                 static_cast<unsigned long long>(ops[int(Op::clzero)]),
+                 static_cast<unsigned long long>(ops[int(Op::monitorx)]),
+                 static_cast<unsigned long long>(ops[int(Op::mwaitx)]), static_cast<unsigned long long>(ops[int(Op::clwb)]));
+    for (const Top& t : top)
+        if (t.n)
+            std::fprintf(stderr, " %llx x%llu", static_cast<unsigned long long>(t.rip),
+                         static_cast<unsigned long long>(t.n));
+    std::fputc('\n', stderr);
+}
+
 inline LONG CALLBACK handler(EXCEPTION_POINTERS* info) {
     if (info->ExceptionRecord->ExceptionCode != STATUS_ILLEGAL_INSTRUCTION) return EXCEPTION_CONTINUE_SEARCH;
     CONTEXT* c = info->ContextRecord;
+    const uint64_t trapped_rip = c->Rip;
     uint8_t code[15] = {};
     const std::size_t avail = readable(c->Rip, sizeof code);  // the instruction may end at a page boundary
     std::memcpy(code, reinterpret_cast<const void*>(c->Rip), avail);
@@ -417,6 +482,7 @@ inline LONG CALLBACK handler(EXCEPTION_POINTERS* info) {
         const uint64_t fault_rip = c->Rip;
         const ClzeroLoopResult lr = try_clzero_loop(code, avail, c, &fault);
         if (lr == ClzeroLoopResult::ok) {
+            note_emulated(d.op, trapped_rip);
             static std::atomic<uint64_t> first_tick{0};
             const uint64_t n = count(d.op).fetch_add(1, std::memory_order_relaxed) + 1;
             if (n == 1) {
@@ -453,6 +519,7 @@ inline LONG CALLBACK handler(EXCEPTION_POINTERS* info) {
         r->ExceptionInformation[1] = fault.ExceptionInformation[1];
         return EXCEPTION_CONTINUE_SEARCH;
     }
+    note_emulated(d.op, trapped_rip);
     if (count(d.op).fetch_add(1, std::memory_order_relaxed) == 0)
         std::fprintf(stderr, "[rt] cpu: this CPU has no %s; emulating it (first at %p)\n", name(d.op),
                      reinterpret_cast<void*>(c->Rip - d.length));

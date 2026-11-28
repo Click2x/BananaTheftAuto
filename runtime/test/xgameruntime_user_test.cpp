@@ -245,11 +245,14 @@ int main(int argc, char** argv) {
     using IsStore = bool(STDMETHODCALLTYPE*)(void*, XUserHandle);
     check(at<IsStore>(user, 42)(user, h) && at<IsStore>(user, 42)(user, nullptr),
           "XUserIsStoreUser: true, also for a null handle (_In_opt_; always true on console)");
-    using Unknown = HRESULT(STDMETHODCALLTYPE*)(void*, XUserHandle, size_t, char*, size_t*);
-    char probe[16] = "untouched";
+    // Slot 15 is the older XUserGetGamertag (VIctory xuser.rs, measured on the retail title): the same arguments
+    // and answer as the gamertag interface's slot 3.
+    using OldTag = HRESULT(STDMETHODCALLTYPE*)(void*, XUserHandle, uint32_t, size_t, char*, size_t*);
+    char probe[101] = "untouched";
     size_t probe_used = 42;
-    check(at<Unknown>(user, 15)(user, h, sizeof(probe), probe, &probe_used) == E_NOTIMPL,
-          "slot 15 (no public signature) answers E_NOTIMPL rather than S_OK with nothing written");
+    check(at<OldTag>(user, 15)(user, h, 0, sizeof(probe), probe, &probe_used) == S_OK &&
+              std::strcmp(probe, expect_tag) == 0 && probe_used == std::strlen(expect_tag) + 1,
+          "slot 15 (the older XUserGetGamertag slot) gives the gamertag");
 
     // ---- IXUserGamertagImpl: XUserGetGamertag (3) ----
     using GetTag = HRESULT(STDMETHODCALLTYPE*)(void*, XUserHandle, uint32_t, size_t, char*, size_t*);

@@ -36,6 +36,7 @@ inline const char* name(unsigned p) {
 struct Totals {
     std::atomic<std::uint64_t> ns[kCount]{};
     std::atomic<std::uint64_t> max_ns[kCount]{};
+    std::atomic<std::uint64_t> cycles[kCount]{};  // the submitting threads' CPU cycles in each phase (work, not waits)
     std::atomic<std::uint64_t> submissions{0}, all_submissions{0};
     std::atomic<std::int64_t> last_log{0};
     std::atomic<std::uint64_t> presents{0};  // frames the presenter showed (VulkanPresenter), since the last line
@@ -74,6 +75,34 @@ inline std::int64_t period_ns() {
     return value;
 }
 
+// The thread's CPU cycles so far (QueryThreadCycleTime: time spent waiting on a lock or event adds none).
+inline std::uint64_t thread_cycles() {
+#ifdef _WIN32
+    ULONG64 c = 0;
+    QueryThreadCycleTime(GetCurrentThread(), &c);
+    return c;
+#else
+    return 0;
+#endif
+}
+
+// Cycles per nanosecond of a busy thread, measured once (a 20 ms spin), so cycles can be read as busy time.
+inline double cycles_per_ns() {
+    static const double value = [] {
+        const std::int64_t t0 = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                    std::chrono::steady_clock::now().time_since_epoch())
+                                    .count();
+        const std::uint64_t c0 = thread_cycles();
+        std::int64_t t1 = t0;
+        while (t1 - t0 < 20000000)
+            t1 = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch())
+                     .count();
+        const std::uint64_t c1 = thread_cycles();
+        return t1 > t0 && c1 > c0 ? double(c1 - c0) / double(t1 - t0) : 0.0;
+    }();
+    return value;
+}
+
 inline void add(Phase p, std::uint64_t ns) {
     Totals& t = totals();
     t.ns[p].fetch_add(ns, std::memory_order_relaxed);
@@ -86,8 +115,12 @@ inline void add(Phase p, std::uint64_t ns) {
 struct Scope {
     Phase phase;
     std::int64_t start = now_ns();
+    std::uint64_t start_cycles = thread_cycles();
     explicit Scope(Phase p) : phase(p) {}
-    ~Scope() { add(phase, std::uint64_t(now_ns() - start)); }
+    ~Scope() {
+        add(phase, std::uint64_t(now_ns() - start));
+        totals().cycles[phase].fetch_add(thread_cycles() - start_cycles, std::memory_order_relaxed);
+    }
     Scope(const Scope&) = delete;
     Scope& operator=(const Scope&) = delete;
 };
@@ -112,9 +145,12 @@ inline void submitted() {
     const double seconds = double(now - last) * 1e-9;
     const std::uint64_t n = t.submissions.exchange(0, std::memory_order_relaxed);
     const std::uint64_t frames = t.presents.exchange(0, std::memory_order_relaxed);
-    double ms[kCount], max_ms[kCount], all = 0;
+    double ms[kCount], max_ms[kCount], busy[kCount], all = 0;
+    const double cpn = cycles_per_ns();
     for (unsigned p = 0; p < kCount; ++p) {
         const double total = double(t.ns[p].exchange(0, std::memory_order_relaxed)) * 1e-6;
+        const double cyc = double(t.cycles[p].exchange(0, std::memory_order_relaxed));
+        busy[p] = total > 0 && cpn > 0 ? 100.0 * cyc / cpn / (total * 1e6) : 0;
         max_ms[p] = double(t.max_ns[p].exchange(0, std::memory_order_relaxed)) * 1e-6;
         ms[p] = n ? total / double(n) : 0;
         all += total;
@@ -128,6 +164,9 @@ inline void submitted() {
                  double(frames) / seconds, name(0), ms[0],
                  max_ms[0], name(1), ms[1], max_ms[1], name(2), ms[2], max_ms[2], name(3), ms[3], max_ms[3], name(4),
                  ms[4], max_ms[4], name(5), ms[5], max_ms[5], 100.0 * all * 1e-3 / seconds);
+    // Of each phase's time, the share its thread was running (the rest: waiting on a lock, event or page fault).
+    std::fprintf(stderr, "[rt] submit phases busy: %s %.0f%% %s %.0f%% %s %.0f%% %s %.0f%% %s %.0f%% %s %.0f%%\n", name(0),
+                 busy[0], name(1), busy[1], name(2), busy[2], name(3), busy[3], name(4), busy[4], name(5), busy[5]);
 }
 
 }  // namespace leonida::submit_phases

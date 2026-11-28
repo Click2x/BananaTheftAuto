@@ -46,7 +46,7 @@ class ManifestEnumerationTest(unittest.TestCase):
             with mock.patch.object(WN.os, "walk", walk), contextlib.redirect_stderr(io.StringIO()) as err, \
                     contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(WN.main(["build", "--manifest", manifests, "--names", names, "--out", output]), 1)
-            self.assertIn(blocked, err.getvalue())
+            self.assertIn(repr(blocked), err.getvalue())
             with open(output, "rb") as f:
                 self.assertEqual(f.read(), b"existing dictionary")
 
@@ -587,6 +587,22 @@ class CliTest(unittest.TestCase):
                     self.assertIn(f"would overwrite input {source}", err_buf.getvalue())
                     with open(source, "rb") as handle:
                         self.assertEqual(handle.read(), original)
+
+    def test_stage_cleanup_restores_write_mode_on_replace_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = os.path.join(tmp, "out.json")
+            chmod_calls = []
+            real_chmod = os.chmod
+
+            def track_chmod(p, mode, **kwargs):
+                chmod_calls.append((p, mode))
+                return real_chmod(p, mode, **kwargs)
+
+            with mock.patch.object(WN.os, "replace", side_effect=OSError("replace failed")), \
+                 mock.patch.object(WN.os, "chmod", side_effect=track_chmod):
+                with self.assertRaises(OSError):
+                    WN._write_json(dest, {})
+            self.assertTrue(any(mode == 0o600 for p, mode in chmod_calls))
 
 
 if __name__ == "__main__":

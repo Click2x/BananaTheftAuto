@@ -318,6 +318,34 @@ inline LONG CALLBACK handler(EXCEPTION_POINTERS* info) {
     in_handler = false;
     return EXCEPTION_CONTINUE_SEARCH;
 }
+
+// A fault no handler took, the process about to end: its code, place and stack go to stderr as well. The trace
+// file can stay held by a process that does not finish exiting (a crash while the GPU still holds imported title
+// memory left one for 15 minutes), stderr's redirect stays readable. Access violations are routine before this
+// point (xmem commits physical pages on them), so only the unhandled one is written.
+inline LONG WINAPI fatal(EXCEPTION_POINTERS* info) {
+    if (!info || !info->ExceptionRecord) return EXCEPTION_CONTINUE_SEARCH;
+    try {
+        const EXCEPTION_RECORD& r = *info->ExceptionRecord;
+        std::string line = "[rt] fatal exception " + hex(r.ExceptionCode) + " at " +
+                           where(reinterpret_cast<uint64_t>(r.ExceptionAddress));
+        if (r.ExceptionCode == EXCEPTION_ACCESS_VIOLATION && r.NumberParameters >= 2) {
+            const auto op = r.ExceptionInformation[0];
+            line += std::string(op == 0 ? " reading " : op == 1 ? " writing " : " executing ") +
+                    hex(r.ExceptionInformation[1]);
+        }
+        if (info->ContextRecord) {
+            const CONTEXT& c = *info->ContextRecord;
+            line += " rax=" + hex(c.Rax) + " rbx=" + hex(c.Rbx) + " rcx=" + hex(c.Rcx) + " rdx=" + hex(c.Rdx) +
+                    " rsi=" + hex(c.Rsi) + " rdi=" + hex(c.Rdi) + " rsp=" + hex(c.Rsp);
+            line += " stack " + stack_from(c);
+        }
+        std::fprintf(stderr, "%s\n", line.c_str());
+        std::fflush(stderr);
+    } catch (...) {
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
 }  // namespace detail
 
 inline void close();
@@ -341,6 +369,7 @@ inline bool open(const wchar_t* path, int* error = nullptr) {
         (void)atexit_registered;
     }
     detail::veh = AddVectoredExceptionHandler(1, &detail::handler);
+    SetUnhandledExceptionFilter(&detail::fatal);
     detail::on.store(true, std::memory_order_release);
     event("trace_open", "\"pid\":" + std::to_string(GetCurrentProcessId()));
     return true;

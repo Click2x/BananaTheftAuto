@@ -1,3 +1,6 @@
+#ifdef LEONIDA_WAIT_TRACE_BUILT
+#include "wait_trace.h"  // LOCAL DIAGNOSTIC
+#endif
 #include <cstdlib>
 #include "d3d12_com.h"
 
@@ -2169,6 +2172,9 @@ public:
             return S_OK;
         }
         if (!event) return fence_.wait(value, UINT64_MAX) ? S_OK : E_FAIL;
+#ifdef LEONIDA_WAIT_TRACE_BUILT
+        rt::wait_trace::note_fence_event(event, value);  // LEONIDA_WAIT_TRACE
+#endif
         context_.enqueue_fence_wait(fence_.semaphore(), value, event);
         return S_OK;
     }

@@ -555,7 +555,10 @@ const void* const kUserVtable[] = {
     FN(user_find_by_id),                                                        // 12 XUserFindUserById
     FN(user_get_is_guest),                                                      // 13 XUserGetIsGuest
     FN(user_get_state),                                                         // 14 XUserGetState
-    FN(unknown_slot<15>),                                                       // 15 (unknown in the docs)
+    // 15: the older XUserGetGamertag slot, (user, component, size, buffer, used) as the separate gamertag
+    // interface's slot 3 takes them (VIctory victory-hle src/modules/xuser.rs, GPL-3.0-or-later: "older gamertag
+    // slot", 0x78, measured on the same title).
+    FN(user_get_gamertag),                                                      // 15 XUserGetGamertag (older slot)
     FN((offline_failure<16, E_FAIL>)),                                          // 16 XUserGetGamerPictureAsync
     FN((offline_failure<17, E_FAIL>)),                                          // 17 XUserGetGamerPictureResultSize
     FN((offline_failure<18, E_FAIL>)),                                          // 18 XUserGetGamerPictureResult

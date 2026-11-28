@@ -7,6 +7,16 @@ What we've posted to the community, newest first. Status only: what changed and 
 
 ---
 
+## 28 Nov 2026: Game time fixed at low frame rates
+
+- ✅ Game time now follows real time at low frame rates, so the world no longer crawls in slow motion
+- ✅ Found what holds each frame back: our runtime's own work before each GPU batch, not the graphics card
+- ✅ A faster per-frame texture check, from upstream Leonida
+- 🔧 Updating is a quick runtime rebuild, no shader work: see [UPDATING.md](UPDATING.md)
+- 🔧 Working on now: one scene that washes out to white, and frame rate
+
+---
+
 ## 27 Nov 2026 (evening): World drawing up to 5× faster
 
 <p align="center"><img src="docs/updates/2026-11-27-5x-faster-card.png" width="80%" alt="World drawing up to 5x faster"></p>

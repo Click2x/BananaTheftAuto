@@ -57,6 +57,12 @@ public:
         std::lock_guard lock(mutex_);
         names_[id] = shader;
     }
+    // The shader name given for a pipeline (empty when the profiler is off or none was given).
+    std::string name_of(std::uintptr_t id) {
+        std::lock_guard lock(mutex_);
+        const auto it = names_.find(id);
+        return it != names_.end() ? it->second : std::string();
+    }
 
     // At the start of recording a command list into `cb` (outside any render pass): a fresh pool and the first stamp.
     void start(VkCommandBuffer cb) {

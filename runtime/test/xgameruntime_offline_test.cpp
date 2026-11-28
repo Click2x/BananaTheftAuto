@@ -240,7 +240,23 @@ int main() {
     check(at<ErrorDialog>(ui, 14)(ui, &async, static_cast<HRESULT>(0x80830003), "save") == S_OK && finished(&async) &&
               at<AsyncOnly>(ui, 15)(ui, &async) == S_OK,
           "an error dialog is logged and dismissed");
-    check(at<NoArgs>(ui, 7)(ui) == E_FAIL, "a profile card is not available offline");
+    using ProfileCard = HRESULT(STDMETHODCALLTYPE*)(void*, XAsyncBlock*, void*, uint64_t);
+    async = XAsyncBlock{};
+    check(at<ProfileCard>(ui, 7)(ui, &async, nullptr, 2814000000000001ull) == S_OK && finished(&async) &&
+              at<AsyncOnly>(ui, 8)(ui, &async) == S_OK,
+          "a profile card has nothing to show: it completes at once, S_OK (VIctory xgameui.rs)");
+    using TextEntry = HRESULT(STDMETHODCALLTYPE*)(void*, XAsyncBlock*, const char*, const char*, const char*, uint32_t,
+                                                  uint32_t);
+    using TextSize = HRESULT(STDMETHODCALLTYPE*)(void*, XAsyncBlock*, uint32_t*);
+    using TextResult = HRESULT(STDMETHODCALLTYPE*)(void*, XAsyncBlock*, uint32_t, char*, uint32_t*);
+    async = XAsyncBlock{};
+    uint32_t text_size = 7, text_used = 7;
+    char text[8] = "x";
+    check(at<TextEntry>(ui, 17)(ui, &async, "Name", "Your name", "", 0, 16) == S_OK && finished(&async) &&
+              XAsyncGetStatus(&async, false) == E_ABORT && at<TextSize>(ui, 18)(ui, &async, &text_size) == E_ABORT &&
+              text_size == 0 && at<TextResult>(ui, 19)(ui, &async, sizeof(text), text, &text_used) == E_ABORT &&
+              text_used == 0 && text[0] == 0,
+          "a text entry is dismissed: E_ABORT, which the title treats as cancelled");
     check(at<NoArgs>(ui, 20)(ui) == E_NOTIMPL, "an unknown slot answers E_NOTIMPL");
 
     // ---- XGameStreaming ----
