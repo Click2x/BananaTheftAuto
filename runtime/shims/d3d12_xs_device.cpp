@@ -3808,9 +3808,24 @@ HRESULT proxy_schedule_frame_event_x(DeviceProxy* self, std::uint64_t event, std
     self->frame_event_offset_us.store(static_cast<std::uint32_t>(offset_us), std::memory_order_relaxed);
     self->frame_event_scheduled.store(true, std::memory_order_relaxed);
 #ifdef LEONIDA_VULKAN_DEVICE
-    if (auto* presentation = device_presentation(self))
-        return presentation->ScheduleFrameEventX(static_cast<UINT>(event), static_cast<UINT>(offset_us),
-                                                 static_cast<UINT>(flags));
+    if (auto* presentation = device_presentation(self)) {
+        const HRESULT hr = presentation->ScheduleFrameEventX(static_cast<UINT>(event), static_cast<UINT>(offset_us),
+                                                             static_cast<UINT>(flags));
+        // The answer the title gets before the presenter exists, once it does too: the request is kept above. The
+        // pacer refuses while it has no frame interval (frame pacing off: SetFrameIntervalX is kept on the device,
+        // not given to it), and the retail title breaks at its init on that refusal (slot 79 with event 2, flip),
+        // skips the rest of that init and later reads a null pointer in its frame loop. That boot crash came only
+        // when the presenter happened to exist before this call (a fast start).
+        if (FAILED(hr)) {
+            static std::atomic<bool> logged{false};
+            if (!logged.exchange(true))
+                std::fprintf(stderr, "[rt] d3d12_xs: ScheduleFrameEventX(event %llu) refused by the pacer (0x%08lx); "
+                                     "answered S_OK, as before the presenter existed\n",
+                             static_cast<unsigned long long>(event), static_cast<unsigned long>(hr));
+            return S_OK;
+        }
+        return hr;
+    }
 #endif
     return S_OK;
 }
